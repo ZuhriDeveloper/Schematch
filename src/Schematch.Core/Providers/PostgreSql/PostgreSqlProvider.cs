@@ -63,6 +63,21 @@ public sealed class PostgreSqlProvider : IDatabaseProvider
         return result;
     }
 
+    public async Task<IReadOnlyList<string>> ListSchemasAsync(ConnectionInfo info, CancellationToken ct = default)
+    {
+        await using var conn = new NpgsqlConnection(BuildConnectionString(info));
+        await conn.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(
+            "SELECT nspname FROM pg_namespace n " +
+            "WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%' " +
+            "ORDER BY nspname", conn);
+        var result = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            result.Add(reader.GetString(0));
+        return result;
+    }
+
     public Task<DatabaseSchema> ReadSchemaAsync(ConnectionInfo info, IProgress<string>? progress = null, CancellationToken ct = default) =>
         new PostgreSqlSchemaReader(this).ReadAsync(info, progress, ct);
 

@@ -19,6 +19,9 @@ public interface IDatabaseProvider
 
     Task<IReadOnlyList<string>> ListDatabasesAsync(ConnectionInfo info, CancellationToken ct = default);
 
+    /// <summary>User schemas in the connection's database — for the schema-scope picker.</summary>
+    Task<IReadOnlyList<string>> ListSchemasAsync(ConnectionInfo info, CancellationToken ct = default);
+
     Task<DatabaseSchema> ReadSchemaAsync(ConnectionInfo info, IProgress<string>? progress = null, CancellationToken ct = default);
 
     ISyncScriptGenerator ScriptGenerator { get; }

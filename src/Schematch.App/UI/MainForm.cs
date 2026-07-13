@@ -44,6 +44,7 @@ public sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(1200, 760);
         MinimumSize = new Size(900, 600);
+        WindowState = FormWindowState.Maximized;
         Font = new Font("Segoe UI", 9f);
 
         _ignoreWhitespace.Checked = _settings.IgnoreWhitespaceInModules;
@@ -74,6 +75,14 @@ public sealed class MainForm : Form
         _targetInfo = target;
         UpdateConnectionButtons();
         Shown += async (_, _) => await CompareAsync();
+    }
+
+    /// <summary>Test/demo seam: preload connections without comparing (e.g. to inspect the connection dialog).</summary>
+    public void PreloadConnections(ConnectionInfo? source, ConnectionInfo? target)
+    {
+        if (source is not null) _sourceInfo = source;
+        if (target is not null) _targetInfo = target;
+        UpdateConnectionButtons();
     }
 
     private void BuildLayout()

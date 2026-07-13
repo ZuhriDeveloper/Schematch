@@ -12,6 +12,12 @@ public sealed class ConnectionInfo
 
     public string Database { get; set; } = "";
 
+    /// <summary>
+    /// Limit the comparison to a single schema (PostgreSQL). Empty compares every user schema.
+    /// Ignored by SQL Server.
+    /// </summary>
+    public string Schema { get; set; } = "";
+
     /// <summary>Windows integrated auth (SQL Server only).</summary>
     public bool UseWindowsAuth { get; set; } = true;
 
@@ -29,9 +35,16 @@ public sealed class ConnectionInfo
 
     public bool UsesRawConnectionString => !string.IsNullOrWhiteSpace(ConnectionString);
 
-    public string DisplayName => UsesRawConnectionString
-        ? (string.IsNullOrEmpty(Database) ? "(connection string)" : $"{Database} (connection string)")
-        : string.IsNullOrEmpty(Database) ? Host : $"{Host} · {Database}";
+    public string DisplayName
+    {
+        get
+        {
+            string schemaSuffix = string.IsNullOrEmpty(Schema) ? "" : $" [{Schema}]";
+            return UsesRawConnectionString
+                ? (string.IsNullOrEmpty(Database) ? "(connection string)" : $"{Database}{schemaSuffix} (connection string)")
+                : (string.IsNullOrEmpty(Database) ? Host : $"{Host} · {Database}{schemaSuffix}");
+        }
+    }
 
     public ConnectionInfo Clone() => (ConnectionInfo)MemberwiseClone();
 }

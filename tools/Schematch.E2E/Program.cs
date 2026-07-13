@@ -49,12 +49,44 @@ else
     await RunScriptFile(provider, source, Path.Combine(fixtures, "pg-source.sql"));
     await RunScriptFile(provider, target, Path.Combine(fixtures, "pg-target.sql"));
 
+    await VerifySchemaScope(provider, source, target);
     await RoundTrip(provider, source, target);
 }
 
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "E2E PASSED" : $"E2E FAILED ({failures} check(s) failed)");
 return failures == 0 ? 0 : 1;
+
+// PostgreSQL only: prove that scoping a connection to one schema reads that schema and nothing else.
+async Task VerifySchemaScope(IDatabaseProvider provider, ConnectionInfo source, ConnectionInfo target)
+{
+    Step("Schema-scope verification (PostgreSQL)");
+
+    var schemas = await provider.ListSchemasAsync(source);
+    Console.WriteLine($"  schemas in source: {string.Join(", ", schemas)}");
+    Check("both 'public' and 'sales' schemas exist", schemas.Contains("public") && schemas.Contains("sales"));
+
+    // Scope both sides to 'public' and compare.
+    var srcPublic = source.Clone(); srcPublic.Schema = "public";
+    var tgtPublic = target.Clone(); tgtPublic.Schema = "public";
+    var scoped = await Compare(provider, srcPublic, tgtPublic);
+
+    bool anySales = scoped.Differences.Any(d => d.Schema.Equals("sales", StringComparison.OrdinalIgnoreCase));
+    bool anyPublic = scoped.Differences.Any(d => d.Schema.Equals("public", StringComparison.OrdinalIgnoreCase));
+    Check("scoped compare excludes the 'sales' schema", !anySales);
+    Check("scoped compare still includes the 'public' schema", anyPublic);
+
+    // Full compare (no scope) must include sales — confirming the exclusion was the scope's doing.
+    var full = await Compare(provider, source, target);
+    Check("unscoped compare includes the 'sales' schema", full.Differences.Any(d => d.Schema.Equals("sales", StringComparison.OrdinalIgnoreCase)));
+
+    // Scope to 'sales' alone.
+    var srcSales = source.Clone(); srcSales.Schema = "sales";
+    var tgtSales = target.Clone(); tgtSales.Schema = "sales";
+    var salesScoped = await Compare(provider, srcSales, tgtSales);
+    Check("'sales'-scoped compare excludes 'public'", !salesScoped.Differences.Any(d => d.Schema.Equals("public", StringComparison.OrdinalIgnoreCase)));
+    Check("'sales'-scoped compare includes sales.orders", salesScoped.Differences.Any(d => d.FullName.Equals("sales.orders", StringComparison.OrdinalIgnoreCase)));
+}
 
 async Task RoundTrip(IDatabaseProvider provider, ConnectionInfo source, ConnectionInfo target)
 {

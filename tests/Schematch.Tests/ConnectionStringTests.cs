@@ -76,4 +76,15 @@ public class ConnectionStringTests
         Assert.Contains("Sales", raw.DisplayName);
         Assert.Contains("connection string", raw.DisplayName);
     }
+
+    [Fact]
+    public void DisplayName_shows_schema_scope_when_set()
+    {
+        var scoped = new ConnectionInfo { ProviderName = "PostgreSQL", Host = "localhost", Database = "mydb", Schema = "sales" };
+        Assert.Contains("mydb", scoped.DisplayName);
+        Assert.Contains("[sales]", scoped.DisplayName);
+
+        var whole = new ConnectionInfo { ProviderName = "PostgreSQL", Host = "localhost", Database = "mydb" };
+        Assert.DoesNotContain("[", whole.DisplayName);
+    }
 }

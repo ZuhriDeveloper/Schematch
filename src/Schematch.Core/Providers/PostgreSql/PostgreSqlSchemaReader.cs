@@ -6,15 +6,23 @@ namespace Schematch.Core.Providers.PostgreSql;
 /// <summary>Reads a full schema snapshot from PostgreSQL system catalogs.</summary>
 internal sealed class PostgreSqlSchemaReader
 {
-    private const string UserSchemaFilter =
+    private const string AllUserSchemas =
         "n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'";
 
     private readonly PostgreSqlProvider _provider;
+
+    /// <summary>WHERE fragment (on alias <c>n</c> = pg_namespace) that scopes every read query.</summary>
+    private string _schemaFilter = AllUserSchemas;
 
     public PostgreSqlSchemaReader(PostgreSqlProvider provider) => _provider = provider;
 
     public async Task<DatabaseSchema> ReadAsync(ConnectionInfo info, IProgress<string>? progress, CancellationToken ct)
     {
+        // Scope to a single schema when requested, otherwise every user schema.
+        _schemaFilter = string.IsNullOrWhiteSpace(info.Schema)
+            ? AllUserSchemas
+            : $"n.nspname = '{info.Schema.Replace("'", "''")}'";
+
         var schema = new DatabaseSchema
         {
             DatabaseName = info.Database,
@@ -42,16 +50,16 @@ internal sealed class PostgreSqlSchemaReader
         return schema;
     }
 
-    private static async Task ReadSchemasAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
+    private async Task ReadSchemasAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
     {
-        string sql = $"SELECT n.nspname FROM pg_namespace n WHERE {UserSchemaFilter} ORDER BY 1";
+        string sql = $"SELECT n.nspname FROM pg_namespace n WHERE {_schemaFilter} ORDER BY 1";
         await using var cmd = new NpgsqlCommand(sql, conn);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
             schema.Schemas.Add(reader.GetString(0));
     }
 
-    private static async Task<Dictionary<string, TableModel>> ReadTablesAndColumnsAsync(
+    private async Task<Dictionary<string, TableModel>> ReadTablesAndColumnsAsync(
         NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
     {
         string sql = $"""
@@ -70,7 +78,7 @@ internal sealed class PostgreSqlSchemaReader
             JOIN pg_type t ON t.oid = a.atttypid
             LEFT JOIN pg_attrdef ad ON ad.adrelid = c.oid AND ad.adnum = a.attnum
             LEFT JOIN pg_collation col ON col.oid = a.attcollation
-            WHERE c.relkind = 'r' AND {UserSchemaFilter}
+            WHERE c.relkind = 'r' AND {_schemaFilter}
             ORDER BY n.nspname, c.relname, a.attnum
             """;
 
@@ -116,7 +124,7 @@ internal sealed class PostgreSqlSchemaReader
         return tables;
     }
 
-    private static async Task ReadConstraintsAsync(NpgsqlConnection conn, Dictionary<string, TableModel> tables, CancellationToken ct)
+    private async Task ReadConstraintsAsync(NpgsqlConnection conn, Dictionary<string, TableModel> tables, CancellationToken ct)
     {
         string sql = $"""
             SELECT n.nspname, c.relname, con.conname, con.contype::text,
@@ -134,7 +142,7 @@ internal sealed class PostgreSqlSchemaReader
             JOIN pg_namespace n ON n.oid = c.relnamespace
             LEFT JOIN pg_class rc ON rc.oid = con.confrelid
             LEFT JOIN pg_namespace rn ON rn.oid = rc.relnamespace
-            WHERE con.contype IN ('p', 'u', 'f', 'c') AND {UserSchemaFilter}
+            WHERE con.contype IN ('p', 'u', 'f', 'c') AND {_schemaFilter}
             ORDER BY n.nspname, c.relname, con.conname
             """;
 
@@ -197,7 +205,7 @@ internal sealed class PostgreSqlSchemaReader
         };
     }
 
-    private static async Task ReadIndexesAsync(NpgsqlConnection conn, Dictionary<string, TableModel> tables, CancellationToken ct)
+    private async Task ReadIndexesAsync(NpgsqlConnection conn, Dictionary<string, TableModel> tables, CancellationToken ct)
     {
         string sql = $"""
             SELECT n.nspname, c.relname AS table_name, ic.relname AS index_name,
@@ -208,7 +216,7 @@ internal sealed class PostgreSqlSchemaReader
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind = 'r' AND NOT i.indisprimary
               AND NOT EXISTS (SELECT 1 FROM pg_constraint con WHERE con.conindid = i.indexrelid)
-              AND {UserSchemaFilter}
+              AND {_schemaFilter}
             ORDER BY n.nspname, c.relname, ic.relname
             """;
 
@@ -232,7 +240,7 @@ internal sealed class PostgreSqlSchemaReader
             SELECT n.nspname, c.relname, pg_get_viewdef(c.oid, true) AS viewdef
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE c.relkind = 'v' AND {UserSchemaFilter}
+            WHERE c.relkind = 'v' AND {_schemaFilter}
             ORDER BY n.nspname, c.relname
             """;
 
@@ -254,7 +262,7 @@ internal sealed class PostgreSqlSchemaReader
         }
     }
 
-    private static async Task ReadRoutinesAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
+    private async Task ReadRoutinesAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
     {
         string sql = $"""
             SELECT n.nspname, p.proname, p.prokind::text,
@@ -262,7 +270,7 @@ internal sealed class PostgreSqlSchemaReader
                    pg_get_functiondef(p.oid) AS def
             FROM pg_proc p
             JOIN pg_namespace n ON n.oid = p.pronamespace
-            WHERE p.prokind IN ('f', 'p') AND {UserSchemaFilter}
+            WHERE p.prokind IN ('f', 'p') AND {_schemaFilter}
               AND NOT EXISTS (SELECT 1 FROM pg_depend d
                               WHERE d.objid = p.oid AND d.deptype = 'e')
             ORDER BY n.nspname, p.proname
@@ -284,7 +292,7 @@ internal sealed class PostgreSqlSchemaReader
         }
     }
 
-    private static async Task ReadTriggersAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
+    private async Task ReadTriggersAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
     {
         string sql = $"""
             SELECT n.nspname, t.tgname, pg_get_triggerdef(t.oid, true) AS def,
@@ -292,7 +300,7 @@ internal sealed class PostgreSqlSchemaReader
             FROM pg_trigger t
             JOIN pg_class c ON c.oid = t.tgrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE NOT t.tgisinternal AND {UserSchemaFilter}
+            WHERE NOT t.tgisinternal AND {_schemaFilter}
             ORDER BY n.nspname, t.tgname
             """;
 

@@ -27,6 +27,12 @@ internal static class Program
             var target = new ConnectionInfo { ProviderName = "SQL Server", Host = @"(localdb)\MSSQLLocalDB", Database = "SchematchDemoTarget", UseWindowsAuth = true };
             main.LoadDemo(source, target);
         }
+        else if (args.Contains("--demo-pg-dialog"))
+        {
+            // Preload a PostgreSQL source (no compare) so opening the Source dialog shows the schema picker.
+            var source = new ConnectionInfo { ProviderName = "PostgreSQL", Host = "localhost", Port = 5432, Database = "schematch_demo_source", Schema = "public", UseWindowsAuth = false, Username = "postgres" };
+            main.PreloadConnections(source, null);
+        }
 
         Application.Run(main);
     }

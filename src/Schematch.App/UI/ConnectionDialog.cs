@@ -19,6 +19,8 @@ public sealed class ConnectionDialog : Form
     private readonly TextBox _password = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
     private readonly ComboBox _database = new() { Dock = DockStyle.Fill };
     private readonly Button _loadDbs = new() { Text = "Load", Width = 60 };
+    private readonly ComboBox _schema = new() { Dock = DockStyle.Fill };
+    private readonly Button _loadSchemas = new() { Text = "Load", Width = 60 };
 
     private readonly TextBox _connString = new()
     {
@@ -40,6 +42,9 @@ public sealed class ConnectionDialog : Form
 
     private TableLayoutPanel _structuredPanel = null!;
     private TableLayoutPanel _connStringPanel = null!;
+    private TableLayoutPanel _schemaPanel = null!;
+
+    private const string AllSchemas = "(all schemas)";
 
     public ConnectionInfo? Result { get; private set; }
     public bool SavePassword => _savePassword.Checked;
@@ -52,7 +57,7 @@ public sealed class ConnectionDialog : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(470, 420);
+        ClientSize = new Size(470, 470);
         Font = new Font("Segoe UI", 9f);
 
         BuildLayout();
@@ -77,6 +82,7 @@ public sealed class ConnectionDialog : Form
         _auth.SelectedIndexChanged += (_, _) => UpdateFieldVisibility();
         _useConnString.CheckedChanged += (_, _) => UpdateFieldVisibility();
         _loadDbs.Click += async (_, _) => await LoadDatabasesAsync();
+        _loadSchemas.Click += async (_, _) => await LoadSchemasAsync();
         _test.Click += async (_, _) => await TestAsync();
 
         if (existing is not null)
@@ -93,6 +99,7 @@ public sealed class ConnectionDialog : Form
     {
         _structuredPanel = BuildStructuredPanel();
         _connStringPanel = BuildConnStringPanel();
+        _schemaPanel = BuildSchemaPanel();
 
         var grid = new TableLayoutPanel
         {
@@ -119,6 +126,7 @@ public sealed class ConnectionDialog : Form
         AddRow(null, _useConnString, spanFull: true);
         AddRow(null, _structuredPanel, spanFull: true);
         AddRow(null, _connStringPanel, spanFull: true);
+        AddRow(null, _schemaPanel, spanFull: true);
         AddRow(null, _savePassword, spanFull: true);
 
         var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, Dock = DockStyle.Fill, AutoSize = true };
@@ -164,6 +172,29 @@ public sealed class ConnectionDialog : Form
         return grid;
     }
 
+    private TableLayoutPanel BuildSchemaPanel()
+    {
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, Margin = Padding.Empty };
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        grid.Controls.Add(Label_("Schema"), 0, 0);
+        grid.Controls.Add(_schema, 1, 0);
+        grid.Controls.Add(_loadSchemas, 2, 0);
+        var hint = new Label
+        {
+            Text = "Limit the comparison to one schema (leave as all schemas to compare the whole database).",
+            AutoSize = true,
+            ForeColor = Color.DimGray,
+            Margin = new Padding(3, 2, 0, 0),
+        };
+        grid.Controls.Add(hint, 1, 1);
+        grid.SetColumnSpan(hint, 2);
+        _schema.Items.Add(AllSchemas);
+        _schema.SelectedIndex = 0;
+        return grid;
+    }
+
     private TableLayoutPanel BuildConnStringPanel()
     {
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 1, Margin = Padding.Empty };
@@ -201,6 +232,9 @@ public sealed class ConnectionDialog : Form
         _userLabel.Visible = _username.Visible = !windowsAuth;
         _passLabel.Visible = _password.Visible = !windowsAuth;
 
+        // Schema scoping is offered for PostgreSQL only.
+        _schemaPanel.Visible = !isSqlServer;
+
         _savePassword.Visible = raw || !windowsAuth;
         _savePassword.Text = raw
             ? "Remember connection string (encrypted for this Windows user)"
@@ -224,8 +258,17 @@ public sealed class ConnectionDialog : Form
             _password.Text = info.Password;
             _database.Text = info.Database;
         }
+        _schema.Text = string.IsNullOrEmpty(info.Schema) ? AllSchemas : info.Schema;
         _savePassword.Checked = savePassword;
         UpdateFieldVisibility();
+    }
+
+    /// <summary>Selected schema, or "" for all schemas / non-PostgreSQL engines.</summary>
+    private string SelectedSchema()
+    {
+        if ((string?)_provider.SelectedItem == "SQL Server") return "";
+        string s = _schema.Text.Trim();
+        return s.Length == 0 || s == AllSchemas ? "" : s;
     }
 
     private bool TryBuildResult(out ConnectionInfo info)
@@ -236,7 +279,7 @@ public sealed class ConnectionDialog : Form
         if (_useConnString.Checked)
         {
             string cs = _connString.Text.Trim();
-            info = new ConnectionInfo { ProviderName = providerName, ConnectionString = cs };
+            info = new ConnectionInfo { ProviderName = providerName, ConnectionString = cs, Schema = SelectedSchema() };
             if (cs.Length == 0)
             {
                 _status.Text = "Connection string is required.";
@@ -281,7 +324,7 @@ public sealed class ConnectionDialog : Form
         if (_useConnString.Checked)
         {
             string cs = _connString.Text.Trim();
-            var info = new ConnectionInfo { ProviderName = providerName, ConnectionString = cs };
+            var info = new ConnectionInfo { ProviderName = providerName, ConnectionString = cs, Schema = SelectedSchema() };
             if (cs.Length > 0) info.Database = ProviderRegistry.Get(providerName).ExtractDatabaseName(cs);
             return info;
         }
@@ -297,10 +340,38 @@ public sealed class ConnectionDialog : Form
             Host = _host.Text.Trim(),
             Port = isSqlServer ? null : (int)_port.Value,
             Database = _database.Text.Trim(),
+            Schema = SelectedSchema(),
             UseWindowsAuth = isSqlServer && _auth.SelectedIndex == 0,
             Username = _username.Text.Trim(),
             Password = _password.Text,
         };
+    }
+
+    private async Task LoadSchemasAsync()
+    {
+        var info = BuildInfo();
+        var provider = ProviderRegistry.Get(info.ProviderName);
+        _status.Text = "Loading schemas…";
+        _loadSchemas.Enabled = false;
+        try
+        {
+            var schemas = await provider.ListSchemasAsync(info);
+            string current = _schema.Text;
+            _schema.Items.Clear();
+            _schema.Items.Add(AllSchemas);
+            _schema.Items.AddRange(schemas.Cast<object>().ToArray());
+            _schema.Text = schemas.Contains(current) ? current : AllSchemas;
+            if (_schema.Items.Count > 1) _schema.DroppedDown = true;
+            _status.Text = $"{schemas.Count} schema(s).";
+        }
+        catch (Exception ex)
+        {
+            _status.Text = "Failed: " + FirstLine(ex.Message);
+        }
+        finally
+        {
+            _loadSchemas.Enabled = true;
+        }
     }
 
     private async Task LoadDatabasesAsync()

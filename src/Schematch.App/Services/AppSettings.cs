@@ -11,6 +11,7 @@ public sealed class SavedConnection
     public string Host { get; set; } = "";
     public int? Port { get; set; }
     public string Database { get; set; } = "";
+    public string Schema { get; set; } = "";
     public bool UseWindowsAuth { get; set; } = true;
     public string Username { get; set; } = "";
 
@@ -23,9 +24,11 @@ public sealed class SavedConnection
     /// <summary>DPAPI-protected raw connection string (it may embed a password, so the whole thing is a secret).</summary>
     public string? ProtectedConnectionString { get; set; }
 
+    private string SchemaSuffix => string.IsNullOrEmpty(Schema) ? "" : $" [{Schema}]";
+
     public string DisplayName => UsesRawConnectionString
-        ? $"{ProviderName}: {(string.IsNullOrEmpty(Database) ? "(connection string)" : Database + " (connection string)")}"
-        : $"{ProviderName}: {Host}{(Port is int p ? $":{p}" : "")} · {Database}" +
+        ? $"{ProviderName}: {(string.IsNullOrEmpty(Database) ? "(connection string)" : Database + SchemaSuffix + " (connection string)")}"
+        : $"{ProviderName}: {Host}{(Port is int p ? $":{p}" : "")} · {Database}{SchemaSuffix}" +
           (UseWindowsAuth ? "" : $" ({Username})");
 
     public ConnectionInfo ToConnectionInfo() => new()
@@ -34,6 +37,7 @@ public sealed class SavedConnection
         Host = Host,
         Port = Port,
         Database = Database,
+        Schema = Schema,
         UseWindowsAuth = UseWindowsAuth,
         Username = Username,
         Password = Unprotect(ProtectedPassword),
@@ -46,6 +50,7 @@ public sealed class SavedConnection
         Host = info.Host,
         Port = info.Port,
         Database = info.Database,
+        Schema = info.Schema,
         UseWindowsAuth = info.UseWindowsAuth,
         Username = info.Username,
         UsesRawConnectionString = info.UsesRawConnectionString,
@@ -110,6 +115,7 @@ public sealed class AppSettings
             c.ProviderName.Equals(info.ProviderName, StringComparison.OrdinalIgnoreCase) &&
             c.Host.Equals(info.Host, StringComparison.OrdinalIgnoreCase) &&
             c.Database.Equals(info.Database, StringComparison.OrdinalIgnoreCase) &&
+            c.Schema.Equals(info.Schema, StringComparison.OrdinalIgnoreCase) &&
             c.Username.Equals(info.Username, StringComparison.OrdinalIgnoreCase));
         RecentConnections.Insert(0, SavedConnection.From(info, savePassword));
         if (RecentConnections.Count > 10)

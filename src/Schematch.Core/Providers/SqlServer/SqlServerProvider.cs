@@ -83,6 +83,20 @@ public sealed class SqlServerProvider : IDatabaseProvider
         return result;
     }
 
+    public async Task<IReadOnlyList<string>> ListSchemasAsync(ConnectionInfo info, CancellationToken ct = default)
+    {
+        await using var conn = new SqlConnection(BuildConnectionString(info));
+        await conn.OpenAsync(ct);
+        await using var cmd = new SqlCommand(
+            "SELECT name FROM sys.schemas WHERE schema_id < 16384 " +
+            "AND name NOT IN ('sys', 'INFORMATION_SCHEMA', 'guest') AND name NOT LIKE 'db[_]%' ORDER BY name", conn);
+        var result = new List<string>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            result.Add(reader.GetString(0));
+        return result;
+    }
+
     public Task<DatabaseSchema> ReadSchemaAsync(ConnectionInfo info, IProgress<string>? progress = null, CancellationToken ct = default) =>
         new SqlServerSchemaReader(this).ReadAsync(info, progress, ct);
 
