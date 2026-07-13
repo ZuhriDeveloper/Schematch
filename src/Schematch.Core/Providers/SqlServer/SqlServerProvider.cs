@@ -20,7 +20,18 @@ public sealed class SqlServerProvider : IDatabaseProvider
 
     public string BuildConnectionString(ConnectionInfo info, string? databaseOverride = null)
     {
-        var b = new SqlConnectionStringBuilder
+        SqlConnectionStringBuilder b;
+        if (info.UsesRawConnectionString)
+        {
+            b = new SqlConnectionStringBuilder(info.ConnectionString);
+            if (databaseOverride is not null) b.InitialCatalog = databaseOverride;
+            // SqlConnectionStringBuilder.ContainsKey reports true for every known keyword and
+            // ApplicationName has a non-empty default, so scan the user's raw string directly.
+            if (!HasKeyword(info.ConnectionString!, "Application Name", "app")) b.ApplicationName = "Schematch";
+            return b.ConnectionString;
+        }
+
+        b = new SqlConnectionStringBuilder
         {
             DataSource = info.Port is int port and not 1433 ? $"{info.Host},{port}" : info.Host,
             InitialCatalog = databaseOverride ?? info.Database,
@@ -39,6 +50,25 @@ public sealed class SqlServerProvider : IDatabaseProvider
 
     public DbConnection CreateConnection(ConnectionInfo info) =>
         new SqlConnection(BuildConnectionString(info));
+
+    public string ExtractDatabaseName(string connectionString)
+    {
+        try { return new SqlConnectionStringBuilder(connectionString).InitialCatalog; }
+        catch { return ""; }
+    }
+
+    private static bool HasKeyword(string connectionString, params string[] keys)
+    {
+        foreach (var part in connectionString.Split(';'))
+        {
+            int eq = part.IndexOf('=');
+            if (eq <= 0) continue;
+            string key = part[..eq].Trim();
+            if (keys.Any(k => string.Equals(key, k, StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+        return false;
+    }
 
     public async Task<IReadOnlyList<string>> ListDatabasesAsync(ConnectionInfo info, CancellationToken ct = default)
     {

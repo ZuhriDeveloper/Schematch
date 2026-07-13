@@ -20,8 +20,18 @@ public sealed class ConnectionInfo
 
     public bool TrustServerCertificate { get; set; } = true;
 
-    public string DisplayName =>
-        string.IsNullOrEmpty(Database) ? Host : $"{Host} · {Database}";
+    /// <summary>
+    /// When set, providers connect with this verbatim string and ignore the structured fields above.
+    /// The engine is still chosen by <see cref="ProviderName"/>. <see cref="Database"/> is populated
+    /// from the string (via the provider) so display, confirmations, and dedupe still work.
+    /// </summary>
+    public string? ConnectionString { get; set; }
+
+    public bool UsesRawConnectionString => !string.IsNullOrWhiteSpace(ConnectionString);
+
+    public string DisplayName => UsesRawConnectionString
+        ? (string.IsNullOrEmpty(Database) ? "(connection string)" : $"{Database} (connection string)")
+        : string.IsNullOrEmpty(Database) ? Host : $"{Host} · {Database}";
 
     public ConnectionInfo Clone() => (ConnectionInfo)MemberwiseClone();
 }

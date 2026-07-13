@@ -14,6 +14,9 @@ public interface IDatabaseProvider
     string BuildConnectionString(ConnectionInfo info, string? databaseOverride = null);
     DbConnection CreateConnection(ConnectionInfo info);
 
+    /// <summary>Parses the database/catalog name out of a raw connection string (empty if absent/invalid).</summary>
+    string ExtractDatabaseName(string connectionString);
+
     Task<IReadOnlyList<string>> ListDatabasesAsync(ConnectionInfo info, CancellationToken ct = default);
 
     Task<DatabaseSchema> ReadSchemaAsync(ConnectionInfo info, IProgress<string>? progress = null, CancellationToken ct = default);

@@ -18,8 +18,11 @@ Supports **SQL Server** and **PostgreSQL** (same-engine pairs).
 - **Execute against target** with a typed-database-name confirmation and an execution log.
 - **Data compare** via a streaming merge-join (large tables never load fully into memory),
   generating `INSERT`/`UPDATE`/`DELETE` scripts.
-- Recent connections saved to `%APPDATA%\Schematch\settings.json`; passwords are optional and,
-  when saved, encrypted per Windows user with DPAPI.
+- Each connection can be entered as **structured fields** (engine, host, auth, database) **or as a
+  raw connection string** — tick "Enter a connection string directly" in the connection dialog.
+  The engine picker still selects the driver; the database is parsed out of the string.
+- Recent connections saved to `%APPDATA%\Schematch\settings.json`; passwords (and saved connection
+  strings, which may embed a password) are optional and, when saved, encrypted per Windows user with DPAPI.
 
 ## Projects
 

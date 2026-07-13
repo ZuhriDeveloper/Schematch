@@ -17,8 +17,16 @@ public sealed class SavedConnection
     /// <summary>DPAPI-protected (current user), base64. Null when the user chose not to save it.</summary>
     public string? ProtectedPassword { get; set; }
 
-    public string DisplayName => $"{ProviderName}: {Host}{(Port is int p ? $":{p}" : "")} · {Database}" +
-                                 (UseWindowsAuth ? "" : $" ({Username})");
+    /// <summary>True when this entry was created from a raw connection string rather than the structured fields.</summary>
+    public bool UsesRawConnectionString { get; set; }
+
+    /// <summary>DPAPI-protected raw connection string (it may embed a password, so the whole thing is a secret).</summary>
+    public string? ProtectedConnectionString { get; set; }
+
+    public string DisplayName => UsesRawConnectionString
+        ? $"{ProviderName}: {(string.IsNullOrEmpty(Database) ? "(connection string)" : Database + " (connection string)")}"
+        : $"{ProviderName}: {Host}{(Port is int p ? $":{p}" : "")} · {Database}" +
+          (UseWindowsAuth ? "" : $" ({Username})");
 
     public ConnectionInfo ToConnectionInfo() => new()
     {
@@ -29,6 +37,7 @@ public sealed class SavedConnection
         UseWindowsAuth = UseWindowsAuth,
         Username = Username,
         Password = Unprotect(ProtectedPassword),
+        ConnectionString = UsesRawConnectionString ? Unprotect(ProtectedConnectionString) : null,
     };
 
     public static SavedConnection From(ConnectionInfo info, bool savePassword) => new()
@@ -39,7 +48,10 @@ public sealed class SavedConnection
         Database = info.Database,
         UseWindowsAuth = info.UseWindowsAuth,
         Username = info.Username,
+        UsesRawConnectionString = info.UsesRawConnectionString,
         ProtectedPassword = savePassword && info.Password.Length > 0 ? Protect(info.Password) : null,
+        ProtectedConnectionString = info.UsesRawConnectionString && savePassword && info.ConnectionString!.Length > 0
+            ? Protect(info.ConnectionString!) : null,
     };
 
     private static string Protect(string secret) =>

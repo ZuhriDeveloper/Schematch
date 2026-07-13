@@ -19,7 +19,16 @@ public sealed class PostgreSqlProvider : IDatabaseProvider
 
     public string BuildConnectionString(ConnectionInfo info, string? databaseOverride = null)
     {
-        var b = new NpgsqlConnectionStringBuilder
+        NpgsqlConnectionStringBuilder b;
+        if (info.UsesRawConnectionString)
+        {
+            b = new NpgsqlConnectionStringBuilder(info.ConnectionString);
+            if (databaseOverride is not null) b.Database = databaseOverride;
+            if (string.IsNullOrEmpty(b.ApplicationName)) b.ApplicationName = "Schematch";
+            return b.ConnectionString;
+        }
+
+        b = new NpgsqlConnectionStringBuilder
         {
             Host = info.Host,
             Port = info.Port ?? DefaultPort,
@@ -34,6 +43,12 @@ public sealed class PostgreSqlProvider : IDatabaseProvider
 
     public DbConnection CreateConnection(ConnectionInfo info) =>
         new NpgsqlConnection(BuildConnectionString(info));
+
+    public string ExtractDatabaseName(string connectionString)
+    {
+        try { return new NpgsqlConnectionStringBuilder(connectionString).Database ?? ""; }
+        catch { return ""; }
+    }
 
     public async Task<IReadOnlyList<string>> ListDatabasesAsync(ConnectionInfo info, CancellationToken ct = default)
     {
