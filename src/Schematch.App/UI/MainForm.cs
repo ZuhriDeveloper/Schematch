@@ -34,6 +34,9 @@ public sealed class MainForm : Form
         CheckBoxes = true,
         HideSelection = false,
     };
+    // AutoCheck off so we drive the state ourselves; ThreeState shows the mixed (indeterminate) case.
+    private readonly CheckBox _selectAll = new() { Text = "Select all", AutoSize = true, ThreeState = true, AutoCheck = false, Margin = new Padding(4, 4, 0, 0) };
+    private bool _suppressCheckSync;
     private readonly DiffViewer _diff = new() { Dock = DockStyle.Fill };
     private readonly Button _generate = new() { Text = "Generate Deployment Script", AutoSize = true, Enabled = false };
     private readonly Button _dataCompare = new() { Text = "Data Compare…", AutoSize = true, Enabled = false };
@@ -59,6 +62,8 @@ public sealed class MainForm : Form
         _compare.Click += async (_, _) => await CompareAsync();
         _cancel.Click += (_, _) => _cts?.Cancel();
         _hideEqual.CheckedChanged += (_, _) => PopulateResults();
+        _selectAll.Click += (_, _) => ToggleSelectAll();
+        _results.ItemChecked += (_, _) => { if (!_suppressCheckSync) UpdateSelectAllState(); };
         _results.SelectedIndexChanged += (_, _) => ShowSelectedDiff();
         _generate.Click += (_, _) => GenerateScript();
         _dataCompare.Click += (_, _) => OpenDataCompare();
@@ -111,7 +116,11 @@ public sealed class MainForm : Form
             Orientation = Orientation.Horizontal,
             SplitterDistance = 330,
         };
+        var resultsHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4, 2, 4, 2) };
+        resultsHeader.Controls.Add(_selectAll);
+        // Fill control added first so it fills the space left by the docked header.
         split.Panel1.Controls.Add(_results);
+        split.Panel1.Controls.Add(resultsHeader);
         split.Panel2.Controls.Add(_diff);
 
         var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6) };
@@ -208,6 +217,7 @@ public sealed class MainForm : Form
 
     private void PopulateResults()
     {
+        _suppressCheckSync = true;
         _results.BeginUpdate();
         _results.Items.Clear();
         _results.Groups.Clear();
@@ -216,6 +226,8 @@ public sealed class MainForm : Form
         if (_comparison is null)
         {
             _results.EndUpdate();
+            _suppressCheckSync = false;
+            UpdateSelectAllState();
             return;
         }
 
@@ -256,6 +268,33 @@ public sealed class MainForm : Form
             }
         }
         _results.EndUpdate();
+        _suppressCheckSync = false;
+        UpdateSelectAllState();
+    }
+
+    /// <summary>Checks every visible row, or unchecks them all if they are already all checked.</summary>
+    private void ToggleSelectAll()
+    {
+        if (_results.Items.Count == 0) return;
+        bool check = _selectAll.CheckState != CheckState.Checked;
+        _suppressCheckSync = true;
+        _results.BeginUpdate();
+        foreach (ListViewItem item in _results.Items)
+            item.Checked = check;
+        _results.EndUpdate();
+        _suppressCheckSync = false;
+        UpdateSelectAllState();
+    }
+
+    /// <summary>Reflects all / none / mixed selection in the header checkbox.</summary>
+    private void UpdateSelectAllState()
+    {
+        int total = _results.Items.Count;
+        int selected = _results.CheckedItems.Count;
+        _selectAll.CheckState = total == 0 || selected == 0 ? CheckState.Unchecked
+            : selected == total ? CheckState.Checked
+            : CheckState.Indeterminate;
+        _selectAll.Text = total == 0 ? "Select all" : $"Select all ({selected}/{total})";
     }
 
     private void ShowSelectedDiff()
