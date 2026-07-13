@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Schematch.App/Schematch.App.csproj" />
+    <Project Path="src/Schematch.Core/Schematch.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Schematch.Tests/Schematch.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Schematch.E2E/Schematch.E2E.csproj" />
+  </Folder>
+</Solution>

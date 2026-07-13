@@ -1,0 +1,22 @@
+## .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+## User / IDE files
+.vs/
+*.user
+*.suo
+*.userprefs
+
+## Generated deployment scripts from E2E runs
+tests/fixtures/generated-*.sql
+
+## NuGet
+*.nupkg
+packages/

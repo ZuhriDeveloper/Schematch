@@ -1,0 +1,313 @@
+using Npgsql;
+using Schematch.Core.Model;
+
+namespace Schematch.Core.Providers.PostgreSql;
+
+/// <summary>Reads a full schema snapshot from PostgreSQL system catalogs.</summary>
+internal sealed class PostgreSqlSchemaReader
+{
+    private const string UserSchemaFilter =
+        "n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'";
+
+    private readonly PostgreSqlProvider _provider;
+
+    public PostgreSqlSchemaReader(PostgreSqlProvider provider) => _provider = provider;
+
+    public async Task<DatabaseSchema> ReadAsync(ConnectionInfo info, IProgress<string>? progress, CancellationToken ct)
+    {
+        var schema = new DatabaseSchema
+        {
+            DatabaseName = info.Database,
+            ProviderName = PostgreSqlProvider.ProviderName,
+        };
+
+        await using var conn = new NpgsqlConnection(_provider.BuildConnectionString(info));
+        await conn.OpenAsync(ct);
+
+        progress?.Report("Reading schemas…");
+        await ReadSchemasAsync(conn, schema, ct);
+
+        progress?.Report("Reading tables and columns…");
+        var tablesByName = await ReadTablesAndColumnsAsync(conn, schema, ct);
+
+        progress?.Report("Reading keys and constraints…");
+        await ReadConstraintsAsync(conn, tablesByName, ct);
+        await ReadIndexesAsync(conn, tablesByName, ct);
+
+        progress?.Report("Reading views, functions, triggers…");
+        await ReadViewsAsync(conn, schema, ct);
+        await ReadRoutinesAsync(conn, schema, ct);
+        await ReadTriggersAsync(conn, schema, ct);
+
+        return schema;
+    }
+
+    private static async Task ReadSchemasAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
+    {
+        string sql = $"SELECT n.nspname FROM pg_namespace n WHERE {UserSchemaFilter} ORDER BY 1";
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            schema.Schemas.Add(reader.GetString(0));
+    }
+
+    private static async Task<Dictionary<string, TableModel>> ReadTablesAndColumnsAsync(
+        NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
+    {
+        string sql = $"""
+            SELECT n.nspname AS schema_name, c.relname AS table_name,
+                   a.attname AS column_name, a.attnum AS ordinal,
+                   format_type(a.atttypid, a.atttypmod) AS data_type,
+                   NOT a.attnotnull AS is_nullable,
+                   pg_get_expr(ad.adbin, ad.adrelid) AS default_expr,
+                   a.attidentity::text AS identity_kind,
+                   a.attgenerated::text AS generated_kind,
+                   CASE WHEN a.attcollation <> 0 AND a.attcollation <> t.typcollation
+                        THEN col.collname END AS collation_name
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+            JOIN pg_type t ON t.oid = a.atttypid
+            LEFT JOIN pg_attrdef ad ON ad.adrelid = c.oid AND ad.adnum = a.attnum
+            LEFT JOIN pg_collation col ON col.oid = a.attcollation
+            WHERE c.relkind = 'r' AND {UserSchemaFilter}
+            ORDER BY n.nspname, c.relname, a.attnum
+            """;
+
+        var tables = new Dictionary<string, TableModel>(StringComparer.OrdinalIgnoreCase);
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            string schemaName = reader.GetString(0);
+            string tableName = reader.GetString(1);
+            string key = $"{schemaName}.{tableName}";
+            if (!tables.TryGetValue(key, out var table))
+            {
+                table = new TableModel { Schema = schemaName, Name = tableName };
+                tables.Add(key, table);
+                schema.Tables.Add(table);
+            }
+
+            string? defaultExpr = reader.IsDBNull(6) ? null : reader.GetString(6);
+            string identityKind = reader.IsDBNull(7) ? "" : reader.GetString(7);
+            string generatedKind = reader.IsDBNull(8) ? "" : reader.GetString(8);
+            bool isGenerated = generatedKind == "s";
+
+            var column = new ColumnModel
+            {
+                Name = reader.GetString(2),
+                Ordinal = reader.GetInt16(3),
+                DataType = reader.GetString(4),
+                IsNullable = reader.GetBoolean(5),
+                DefaultExpression = isGenerated ? null : defaultExpr,
+                ComputedExpression = isGenerated ? defaultExpr : null,
+                IsPersisted = isGenerated, // PostgreSQL generated columns are always STORED
+                IdentityClause = identityKind switch
+                {
+                    "a" => "GENERATED ALWAYS AS IDENTITY",
+                    "d" => "GENERATED BY DEFAULT AS IDENTITY",
+                    _ => null,
+                },
+                Collation = reader.IsDBNull(9) ? null : reader.GetString(9),
+            };
+            table.Columns.Add(column);
+        }
+        return tables;
+    }
+
+    private static async Task ReadConstraintsAsync(NpgsqlConnection conn, Dictionary<string, TableModel> tables, CancellationToken ct)
+    {
+        string sql = $"""
+            SELECT n.nspname, c.relname, con.conname, con.contype::text,
+                   pg_get_constraintdef(con.oid, true) AS condef,
+                   (SELECT string_agg(att.attname, ',' ORDER BY u.ord)
+                    FROM unnest(con.conkey) WITH ORDINALITY AS u(attnum, ord)
+                    JOIN pg_attribute att ON att.attrelid = con.conrelid AND att.attnum = u.attnum) AS key_columns,
+                   rn.nspname AS ref_schema, rc.relname AS ref_table,
+                   (SELECT string_agg(att.attname, ',' ORDER BY u.ord)
+                    FROM unnest(con.confkey) WITH ORDINALITY AS u(attnum, ord)
+                    JOIN pg_attribute att ON att.attrelid = con.confrelid AND att.attnum = u.attnum) AS ref_columns,
+                   con.confdeltype::text, con.confupdtype::text
+            FROM pg_constraint con
+            JOIN pg_class c ON c.oid = con.conrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN pg_class rc ON rc.oid = con.confrelid
+            LEFT JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+            WHERE con.contype IN ('p', 'u', 'f', 'c') AND {UserSchemaFilter}
+            ORDER BY n.nspname, c.relname, con.conname
+            """;
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (!tables.TryGetValue($"{reader.GetString(0)}.{reader.GetString(1)}", out var table))
+                continue;
+
+            string name = reader.GetString(2);
+            string type = reader.GetString(3);
+            string condef = reader.GetString(4);
+            var keyColumns = (reader.IsDBNull(5) ? "" : reader.GetString(5))
+                .Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+            switch (type)
+            {
+                case "p" or "u":
+                    var kc = new KeyConstraintModel { Name = name, IsPrimaryKey = type == "p" };
+                    kc.Columns.AddRange(keyColumns.Select(c => new IndexColumn { Name = c }));
+                    if (kc.IsPrimaryKey) table.PrimaryKey = kc;
+                    else table.UniqueConstraints.Add(kc);
+                    break;
+
+                case "f":
+                    var fk = new ForeignKeyModel
+                    {
+                        Name = name,
+                        ReferencedSchema = reader.GetString(6),
+                        ReferencedTable = reader.GetString(7),
+                        OnDelete = RefAction(reader.GetString(9)),
+                        OnUpdate = RefAction(reader.GetString(10)),
+                    };
+                    fk.Columns.AddRange(keyColumns);
+                    fk.ReferencedColumns.AddRange((reader.IsDBNull(8) ? "" : reader.GetString(8))
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries));
+                    table.ForeignKeys.Add(fk);
+                    break;
+
+                case "c":
+                    table.CheckConstraints.Add(new CheckConstraintModel
+                    {
+                        Name = name,
+                        // condef is "CHECK (expr)" — keep just "(expr)".
+                        Expression = condef.StartsWith("CHECK ", StringComparison.OrdinalIgnoreCase)
+                            ? condef[6..].Trim() : condef,
+                    });
+                    break;
+            }
+        }
+
+        static string RefAction(string code) => code switch
+        {
+            "c" => "CASCADE",
+            "n" => "SET NULL",
+            "d" => "SET DEFAULT",
+            "r" => "RESTRICT",
+            _ => "NO ACTION",
+        };
+    }
+
+    private static async Task ReadIndexesAsync(NpgsqlConnection conn, Dictionary<string, TableModel> tables, CancellationToken ct)
+    {
+        string sql = $"""
+            SELECT n.nspname, c.relname AS table_name, ic.relname AS index_name,
+                   i.indisunique, pg_get_indexdef(i.indexrelid) AS indexdef
+            FROM pg_index i
+            JOIN pg_class ic ON ic.oid = i.indexrelid
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'r' AND NOT i.indisprimary
+              AND NOT EXISTS (SELECT 1 FROM pg_constraint con WHERE con.conindid = i.indexrelid)
+              AND {UserSchemaFilter}
+            ORDER BY n.nspname, c.relname, ic.relname
+            """;
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (tables.TryGetValue($"{reader.GetString(0)}.{reader.GetString(1)}", out var table))
+                table.Indexes.Add(new IndexModel
+                {
+                    Name = reader.GetString(2),
+                    IsUnique = reader.GetBoolean(3),
+                    RawDefinition = reader.GetString(4),
+                });
+        }
+    }
+
+    private async Task ReadViewsAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
+    {
+        string sql = $"""
+            SELECT n.nspname, c.relname, pg_get_viewdef(c.oid, true) AS viewdef
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'v' AND {UserSchemaFilter}
+            ORDER BY n.nspname, c.relname
+            """;
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            string schemaName = reader.GetString(0);
+            string name = reader.GetString(1);
+            // pg_get_viewdef returns only the SELECT body; wrap it so both compare and deploy see full DDL.
+            string body = reader.GetString(2).TrimEnd().TrimEnd(';');
+            schema.CodeObjects.Add(new CodeObjectModel
+            {
+                Kind = CodeObjectKind.View,
+                Schema = schemaName,
+                Name = name,
+                Definition = $"CREATE OR REPLACE VIEW {_provider.QuoteIdentifier(schemaName)}.{_provider.QuoteIdentifier(name)} AS\n{body};",
+            });
+        }
+    }
+
+    private static async Task ReadRoutinesAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
+    {
+        string sql = $"""
+            SELECT n.nspname, p.proname, p.prokind::text,
+                   pg_get_function_identity_arguments(p.oid) AS identity_args,
+                   pg_get_functiondef(p.oid) AS def
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE p.prokind IN ('f', 'p') AND {UserSchemaFilter}
+              AND NOT EXISTS (SELECT 1 FROM pg_depend d
+                              WHERE d.objid = p.oid AND d.deptype = 'e')
+            ORDER BY n.nspname, p.proname
+            """;
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            string args = reader.IsDBNull(3) ? "" : reader.GetString(3);
+            schema.CodeObjects.Add(new CodeObjectModel
+            {
+                Kind = reader.GetString(2) == "p" ? CodeObjectKind.Procedure : CodeObjectKind.Function,
+                Schema = reader.GetString(0),
+                // Overloads are distinct objects — the identity arguments are part of the name.
+                Name = $"{reader.GetString(1)}({args})",
+                Definition = reader.GetString(4),
+            });
+        }
+    }
+
+    private static async Task ReadTriggersAsync(NpgsqlConnection conn, DatabaseSchema schema, CancellationToken ct)
+    {
+        string sql = $"""
+            SELECT n.nspname, t.tgname, pg_get_triggerdef(t.oid, true) AS def,
+                   n.nspname || '.' || c.relname AS parent_table
+            FROM pg_trigger t
+            JOIN pg_class c ON c.oid = t.tgrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE NOT t.tgisinternal AND {UserSchemaFilter}
+            ORDER BY n.nspname, t.tgname
+            """;
+
+        await using var cmd = new NpgsqlCommand(sql, conn);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            schema.CodeObjects.Add(new CodeObjectModel
+            {
+                Kind = CodeObjectKind.Trigger,
+                Schema = reader.GetString(0),
+                Name = reader.GetString(1),
+                Definition = reader.GetString(2),
+                ParentTable = reader.GetString(3),
+            });
+        }
+    }
+}
