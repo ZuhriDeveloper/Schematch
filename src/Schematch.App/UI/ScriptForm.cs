@@ -1,10 +1,11 @@
 using System.Data.Common;
+using MaterialSkin.Controls;
 using Schematch.Core.Providers;
 
 namespace Schematch.App.UI;
 
 /// <summary>Shows a generated SQL script with copy/save, and optional guarded execution against the target.</summary>
-public sealed class ScriptForm : Form
+public sealed class ScriptForm : MaterialForm
 {
     private readonly TextBox _script = new()
     {
@@ -13,6 +14,8 @@ public sealed class ScriptForm : Form
         WordWrap = false,
         Font = new Font("Consolas", 9.5f),
         Dock = DockStyle.Fill,
+        BorderStyle = BorderStyle.None,
+        BackColor = Color.White,
     };
 
     private readonly TextBox _log = new()
@@ -22,13 +25,14 @@ public sealed class ScriptForm : Form
         ReadOnly = true,
         Font = new Font("Consolas", 8.5f),
         Dock = DockStyle.Fill,
+        BorderStyle = BorderStyle.None,
         BackColor = Color.FromArgb(30, 30, 30),
         ForeColor = Color.Gainsboro,
     };
 
     private readonly IDatabaseProvider? _provider;
     private readonly ConnectionInfo? _target;
-    private readonly Button _execute = new() { Text = "Execute against target…", AutoSize = true };
+    private readonly MaterialButton _execute = new() { Text = "Execute against target…", AutoSize = true, Margin = new Padding(4, 6, 4, 6) };
 
     public ScriptForm(string title, string script, IDatabaseProvider? provider = null, ConnectionInfo? target = null)
     {
@@ -37,28 +41,35 @@ public sealed class ScriptForm : Form
 
         Text = title;
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(950, 650);
+        ClientSize = new Size(950, 700);
         Font = new Font("Segoe UI", 9f);
+        MaterialTheme.Apply(this);
         _script.Text = script;
 
         var split = new SplitContainer
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Horizontal,
-            SplitterDistance = 480,
             Panel2Collapsed = true,
+            BackColor = Color.FromArgb(224, 224, 224),
         };
+        // Splitter position is absolute, so set once the container has its real (docked) size.
+        Load += (_, _) => split.SplitterDistance = 480;
+        split.Panel1.BackColor = Color.White;
+        split.Panel1.Padding = new Padding(8, 6, 8, 6);
+        split.Panel2.BackColor = Color.FromArgb(30, 30, 30);
+        split.Panel2.Padding = new Padding(8, 6, 8, 6);
         split.Panel1.Controls.Add(_script);
         split.Panel2.Controls.Add(_log);
 
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6) };
-        var copy = new Button { Text = "Copy", AutoSize = true };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6, 2, 6, 2) };
+        var copy = new MaterialButton { Text = "Copy", Type = MaterialButton.MaterialButtonType.Outlined, AutoSize = true, Margin = new Padding(4, 6, 4, 6) };
         copy.Click += (_, _) => { if (_script.Text.Length > 0) Clipboard.SetText(_script.Text); };
-        var save = new Button { Text = "Save…", AutoSize = true };
+        var save = new MaterialButton { Text = "Save…", Type = MaterialButton.MaterialButtonType.Outlined, AutoSize = true, Margin = new Padding(4, 6, 4, 6) };
         save.Click += (_, _) => SaveToFile();
         _execute.Visible = provider is not null && target is not null;
         _execute.Click += async (_, _) => await ExecuteAsync(split);
-        var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.Cancel };
+        var close = new MaterialButton { Text = "Close", Type = MaterialButton.MaterialButtonType.Text, AutoSize = true, Margin = new Padding(4, 6, 4, 6), DialogResult = DialogResult.Cancel };
         buttons.Controls.AddRange(new Control[] { copy, save, _execute, close });
 
         Controls.Add(split);

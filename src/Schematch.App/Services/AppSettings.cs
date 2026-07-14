@@ -31,6 +31,9 @@ public sealed class SavedConnection
         : $"{ProviderName}: {Host}{(Port is int p ? $":{p}" : "")} · {Database}{SchemaSuffix}" +
           (UseWindowsAuth ? "" : $" ({Username})");
 
+    /// <summary>The recent-connections combo renders items via ToString (owner-drawn), so mirror DisplayName.</summary>
+    public override string ToString() => DisplayName;
+
     public ConnectionInfo ToConnectionInfo() => new()
     {
         ProviderName = ProviderName,
