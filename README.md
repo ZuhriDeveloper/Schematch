@@ -70,11 +70,11 @@ exercising the UI (`Schematch.App --demo-mssql` then loads them and compares aut
 
 ## Releases
 
-Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
+Every push to `master` triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
 which runs the test suite, publishes `Schematch.App` as a self-contained win-x64 single-file
 executable, and attaches it (zipped and as a raw `.exe`) to a new GitHub Release.
 
-```sh
-git tag v1.0.0
-git push origin v1.0.0
-```
+Each release is tagged `v<version>.<run-number>` — `<version>` comes from `<Version>` in
+[`Schematch.App.csproj`](src/Schematch.App/Schematch.App.csproj) (bump it there for a new
+version line) and `<run-number>` is the Actions run number, keeping every tag unique. The
+workflow can also be started manually from the Actions tab (**Run workflow**).

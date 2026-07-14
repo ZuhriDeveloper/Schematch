@@ -2,13 +2,9 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
+    branches:
+      - master
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to publish (e.g. v1.0.0)"
-        required: true
 
 permissions:
   contents: write
@@ -19,13 +15,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+
+      - name: Read version from csproj
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$proj = Get-Content src/Schematch.App/Schematch.App.csproj
+          $base = ($proj.Project.PropertyGroup.Version | Where-Object { $_ }) -as [string]
+          if (-not $base) { $base = "0.0.0" }
+          $tag = "v$base.${{ github.run_number }}"
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "base=$base" >> $env:GITHUB_OUTPUT
 
       - name: Restore
         run: dotnet restore
@@ -41,15 +46,14 @@ jobs:
 
       - name: Zip publish output
         shell: pwsh
-        run: |
-          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
-          Compress-Archive -Path dist/win-x64/* -DestinationPath "Schematch-$tag-win-x64.zip"
+        run: Compress-Archive -Path dist/win-x64/* -DestinationPath "Schematch-${{ steps.version.outputs.tag }}-win-x64.zip"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Schematch ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Schematch ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: |
             Schematch-*-win-x64.zip
             dist/win-x64/Schematch.App.exe
