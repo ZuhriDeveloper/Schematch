@@ -8,6 +8,9 @@ x86/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 
+## Local publish/release output (attach to GitHub Releases instead of committing)
+dist/
+
 ## User / IDE files
 .vs/
 *.user
