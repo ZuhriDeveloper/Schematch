@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
+using MaterialSkin;
+using MaterialSkin.Controls;
 
 namespace Schematch.App.UI;
 
@@ -14,8 +16,8 @@ public sealed class DiffViewer : UserControl
 
     private readonly RichTextBox _left = CreatePane();
     private readonly RichTextBox _right = CreatePane();
-    private readonly Label _leftHeader = CreateHeader("Source");
-    private readonly Label _rightHeader = CreateHeader("Target");
+    private readonly MaterialLabel _leftHeader = CreateHeader("Source");
+    private readonly MaterialLabel _rightHeader = CreateHeader("Target");
     private bool _syncing;
 
     public DiffViewer()
@@ -108,11 +110,11 @@ public sealed class DiffViewer : UserControl
         ScrollBars = RichTextBoxScrollBars.Both,
     };
 
-    private static Label CreateHeader(string text) => new()
+    private static MaterialLabel CreateHeader(string text) => new()
     {
         Text = text,
         Dock = DockStyle.Fill,
-        Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+        FontType = MaterialSkinManager.fontType.Subtitle2,
         Padding = new Padding(2),
         AutoSize = true,
     };

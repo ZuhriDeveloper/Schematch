@@ -1,4 +1,6 @@
 using System.Text;
+using MaterialSkin;
+using MaterialSkin.Controls;
 using Schematch.Core.Compare;
 using Schematch.Core.Data;
 using Schematch.Core.Model;
@@ -7,13 +9,21 @@ using Schematch.Core.Providers;
 namespace Schematch.App.UI;
 
 /// <summary>Row-data comparison for tables that exist on both sides with a primary key.</summary>
-public sealed class DataCompareForm : Form
+public sealed class DataCompareForm : MaterialForm
 {
     private readonly IDatabaseProvider _provider;
     private readonly ConnectionInfo _source;
     private readonly ConnectionInfo _target;
 
-    private readonly CheckedListBox _tables = new() { Dock = DockStyle.Fill, CheckOnClick = true };
+    private readonly CheckedListBox _tables = new()
+    {
+        Dock = DockStyle.Fill,
+        CheckOnClick = true,
+        BorderStyle = BorderStyle.None,
+        BackColor = Color.White,
+        Font = new Font("Segoe UI", 9.5f),
+        IntegralHeight = false,
+    };
     private readonly DataGridView _grid = new()
     {
         Dock = DockStyle.Fill,
@@ -22,6 +32,13 @@ public sealed class DataCompareForm : Form
         RowHeadersVisible = false,
         SelectionMode = DataGridViewSelectionMode.FullRowSelect,
         AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+        BorderStyle = BorderStyle.None,
+        BackgroundColor = Color.White,
+        CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal,
+        ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single,
+        GridColor = Color.FromArgb(230, 230, 230),
+        EnableHeadersVisualStyles = false,
+        ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
     };
     private readonly TextBox _preview = new()
     {
@@ -31,12 +48,14 @@ public sealed class DataCompareForm : Form
         WordWrap = false,
         Font = new Font("Consolas", 9f),
         Dock = DockStyle.Fill,
+        BorderStyle = BorderStyle.None,
+        BackColor = Color.White,
     };
-    private readonly Button _run = new() { Text = "Compare Data", AutoSize = true };
-    private readonly Button _script = new() { Text = "Generate DML Script", AutoSize = true, Enabled = false };
-    private readonly Button _cancel = new() { Text = "Cancel", AutoSize = true, Enabled = false };
-    private readonly CheckBox _includeDeletes = new() { Text = "Include DELETEs for extra target rows", AutoSize = true, Checked = true };
-    private readonly Label _status = new() { AutoSize = true, Padding = new Padding(8, 8, 0, 0) };
+    private readonly MaterialButton _run = new() { Text = "Compare Data", AutoSize = true, Margin = new Padding(4, 6, 4, 6) };
+    private readonly MaterialButton _script = new() { Text = "Generate DML Script", Type = MaterialButton.MaterialButtonType.Outlined, AutoSize = true, Enabled = false, Margin = new Padding(4, 6, 4, 6) };
+    private readonly MaterialButton _cancel = new() { Text = "Cancel", Type = MaterialButton.MaterialButtonType.Outlined, AutoSize = true, Enabled = false, Margin = new Padding(4, 6, 4, 6) };
+    private readonly MaterialCheckbox _includeDeletes = new() { Text = "Include DELETEs for extra target rows", AutoSize = true, Checked = true, Margin = new Padding(8, 6, 0, 6) };
+    private readonly MaterialLabel _status = new() { AutoSize = true, FontType = MaterialSkinManager.fontType.Body2, Margin = new Padding(12, 14, 0, 0) };
 
     private readonly List<(TableModel Source, TableModel Target)> _eligible = new();
     private readonly List<TableDataDiff> _results = new();
@@ -51,8 +70,18 @@ public sealed class DataCompareForm : Form
 
         Text = $"Data Compare — {source.Database} → {target.Database}";
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(1000, 640);
+        ClientSize = new Size(1000, 700);
         Font = new Font("Segoe UI", 9f);
+        MaterialTheme.Apply(this);
+
+        _grid.ColumnHeadersDefaultCellStyle.BackColor = Color.White;
+        _grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(97, 97, 97);
+        _grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI Semibold", 9f);
+        _grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = Color.White;
+        _grid.DefaultCellStyle.Font = new Font("Segoe UI", 9.5f);
+        _grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(232, 234, 246); // indigo 50
+        _grid.DefaultCellStyle.SelectionForeColor = Color.Black;
+        _grid.RowTemplate.Height = 28;
 
         foreach (var diff in comparison.Differences.Where(d =>
                      d.Type == SchemaObjectType.Table && d.SourceTable is not null && d.TargetTable is not null))
@@ -71,15 +100,28 @@ public sealed class DataCompareForm : Form
         _grid.Columns.Add("Note", "Note");
         _grid.SelectionChanged += (_, _) => ShowPreview();
 
-        var right = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal, SplitterDistance = 260 };
+        var right = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Horizontal,
+            BackColor = Color.FromArgb(224, 224, 224),
+        };
+        right.Panel1.BackColor = Color.White;
+        right.Panel2.BackColor = Color.White;
         right.Panel1.Controls.Add(_grid);
         right.Panel2.Controls.Add(_preview);
 
-        var split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 280 };
+        var split = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(224, 224, 224),
+        };
+        split.Panel1.BackColor = Color.White;
+        split.Panel2.BackColor = Color.White;
         split.Panel1.Controls.Add(_tables);
         split.Panel2.Controls.Add(right);
 
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6) };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6, 2, 6, 2) };
         _run.Click += async (_, _) => await RunAsync();
         _script.Click += (_, _) => OpenScript();
         _cancel.Click += (_, _) => _cts?.Cancel();
@@ -87,6 +129,13 @@ public sealed class DataCompareForm : Form
 
         Controls.Add(split);
         Controls.Add(buttons);
+
+        // Splitter positions are absolute, so they only make sense once the containers have their real size.
+        Load += (_, _) =>
+        {
+            split.SplitterDistance = 280;
+            right.SplitterDistance = 260;
+        };
     }
 
     private async Task RunAsync()

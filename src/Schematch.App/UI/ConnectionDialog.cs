@@ -1,45 +1,59 @@
+using MaterialSkin;
+using MaterialSkin.Controls;
 using Schematch.App.Services;
 using Schematch.Core.Providers;
 
 namespace Schematch.App.UI;
 
 /// <summary>Connection editor: engine, structured fields OR a raw connection string, test, recent connections.</summary>
-public sealed class ConnectionDialog : Form
+public sealed class ConnectionDialog : MaterialForm
 {
     private readonly AppSettings _settings;
 
-    private readonly ComboBox _recent = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-    private readonly ComboBox _provider = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-    private readonly CheckBox _useConnString = new() { Text = "Enter a connection string directly", AutoSize = true };
+    private readonly MaterialComboBox _recent = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, UseTallSize = false };
+    private readonly MaterialComboBox _provider = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, UseTallSize = false };
+    private readonly MaterialCheckbox _useConnString = new() { Text = "Enter a connection string directly", AutoSize = true };
 
-    private readonly TextBox _host = new() { Dock = DockStyle.Fill };
-    private readonly NumericUpDown _port = new() { Minimum = 1, Maximum = 65535, Value = 5432, Dock = DockStyle.Left, Width = 90 };
-    private readonly ComboBox _auth = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-    private readonly TextBox _username = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _password = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
-    private readonly ComboBox _database = new() { Dock = DockStyle.Fill };
-    private readonly Button _loadDbs = new() { Text = "Load", Width = 60 };
-    private readonly ComboBox _schema = new() { Dock = DockStyle.Fill };
-    private readonly Button _loadSchemas = new() { Text = "Load", Width = 60 };
+    private readonly MaterialTextBox2 _host = new() { Dock = DockStyle.Fill, UseTallSize = false };
+    private readonly NumericUpDown _port = new()
+    {
+        Minimum = 1,
+        Maximum = 65535,
+        Value = 5432,
+        Dock = DockStyle.Left,
+        Width = 100,
+        Font = new Font("Segoe UI", 10f),
+        Margin = new Padding(3, 6, 3, 3),
+    };
+    private readonly MaterialComboBox _auth = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, UseTallSize = false };
+    private readonly MaterialTextBox2 _username = new() { Dock = DockStyle.Fill, UseTallSize = false };
+    private readonly MaterialTextBox2 _password = new() { Dock = DockStyle.Fill, UseTallSize = false, UseSystemPasswordChar = true };
+    // Databases and schemas can be typed directly (without loading), so these stay editable combo boxes.
+    private readonly ComboBox _database = new() { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 10f), Margin = new Padding(3, 6, 3, 3) };
+    private readonly MaterialButton _loadDbs = new() { Text = "Load", Type = MaterialButton.MaterialButtonType.Outlined, Density = MaterialButton.MaterialButtonDensity.Dense, AutoSize = true };
+    private readonly ComboBox _schema = new() { Dock = DockStyle.Fill, Font = new Font("Segoe UI", 10f), Margin = new Padding(3, 6, 3, 3) };
+    private readonly MaterialButton _loadSchemas = new() { Text = "Load", Type = MaterialButton.MaterialButtonType.Outlined, Density = MaterialButton.MaterialButtonDensity.Dense, AutoSize = true };
 
     private readonly TextBox _connString = new()
     {
         Multiline = true,
         ScrollBars = ScrollBars.Vertical,
         Dock = DockStyle.Top,
-        Height = 72,
+        Height = 84,
         Font = new Font("Consolas", 9f),
+        BorderStyle = BorderStyle.FixedSingle,
     };
 
-    private readonly CheckBox _savePassword = new() { Text = "Remember password (encrypted for this Windows user)", AutoSize = true };
-    private readonly Button _test = new() { Text = "Test Connection", AutoSize = true };
-    private readonly Label _status = new() { AutoSize = true, ForeColor = Color.DimGray, Text = "" };
+    private readonly MaterialCheckbox _savePassword = new() { Text = "Remember password (encrypted for this Windows user)", AutoSize = true };
+    private readonly MaterialButton _test = new() { Text = "Test Connection", Type = MaterialButton.MaterialButtonType.Outlined, AutoSize = true };
+    private readonly MaterialLabel _status = new() { AutoSize = true, FontType = MaterialSkinManager.fontType.Body2, Margin = new Padding(10, 12, 0, 0), Text = "" };
 
-    private readonly Label _portLabel = Label_("Port");
-    private readonly Label _authLabel = Label_("Authentication");
-    private readonly Label _userLabel = Label_("Username");
-    private readonly Label _passLabel = Label_("Password");
+    private readonly MaterialLabel _portLabel = Label_("Port");
+    private readonly MaterialLabel _authLabel = Label_("Authentication");
+    private readonly MaterialLabel _userLabel = Label_("Username");
+    private readonly MaterialLabel _passLabel = Label_("Password");
 
+    private TableLayoutPanel _grid = null!;
     private TableLayoutPanel _structuredPanel = null!;
     private TableLayoutPanel _connStringPanel = null!;
     private TableLayoutPanel _schemaPanel = null!;
@@ -54,11 +68,12 @@ public sealed class ConnectionDialog : Form
         _settings = settings;
         Text = title;
         StartPosition = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        Sizable = false;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(470, 470);
+        ClientSize = new Size(560, 640);
         Font = new Font("Segoe UI", 9f);
+        MaterialTheme.Apply(this);
 
         BuildLayout();
 
@@ -69,7 +84,6 @@ public sealed class ConnectionDialog : Form
         foreach (var saved in settings.RecentConnections)
             _recent.Items.Add(saved);
         _recent.SelectedIndex = 0;
-        _recent.DisplayMember = nameof(SavedConnection.DisplayName);
         _recent.SelectedIndexChanged += (_, _) =>
         {
             if (_recent.SelectedItem is SavedConnection saved)
@@ -101,23 +115,23 @@ public sealed class ConnectionDialog : Form
         _connStringPanel = BuildConnStringPanel();
         _schemaPanel = BuildSchemaPanel();
 
-        var grid = new TableLayoutPanel
+        _grid = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(10),
+            Dock = DockStyle.Top,
+            Padding = new Padding(14, 6, 14, 10),
             ColumnCount = 2,
             AutoSize = true,
         };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        _grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126));
+        _grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
         int row = 0;
         void AddRow(Control? label, Control field, bool spanFull = false)
         {
-            if (label is not null) grid.Controls.Add(label, 0, row);
-            grid.Controls.Add(field, spanFull || label is null ? 0 : 1, row);
-            if (spanFull || label is null) grid.SetColumnSpan(field, 2);
-            grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            if (label is not null) _grid.Controls.Add(label, 0, row);
+            _grid.Controls.Add(field, spanFull || label is null ? 0 : 1, row);
+            if (spanFull || label is null) _grid.SetColumnSpan(field, 2);
+            _grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             row++;
         }
 
@@ -129,9 +143,9 @@ public sealed class ConnectionDialog : Form
         AddRow(null, _schemaPanel, spanFull: true);
         AddRow(null, _savePassword, spanFull: true);
 
-        var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, Dock = DockStyle.Fill, AutoSize = true };
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true };
-        var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+        var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
+        var ok = new MaterialButton { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new MaterialButton { Text = "Cancel", Type = MaterialButton.MaterialButtonType.Outlined, DialogResult = DialogResult.Cancel, AutoSize = true };
         ok.Click += (_, _) =>
         {
             if (!TryBuildResult(out var info)) { DialogResult = DialogResult.None; return; }
@@ -142,13 +156,18 @@ public sealed class ConnectionDialog : Form
 
         AcceptButton = ok;
         CancelButton = cancel;
-        Controls.Add(grid);
+        Controls.Add(_grid);
+
+        // The two entry modes differ in height; keep the (fixed-size) dialog snug around the grid.
+        _grid.SizeChanged += (_, _) => AdjustHeight();
     }
+
+    private void AdjustHeight() => ClientSize = new Size(ClientSize.Width, _grid.Bottom + 6);
 
     private TableLayoutPanel BuildStructuredPanel()
     {
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, Margin = Padding.Empty };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
@@ -175,21 +194,21 @@ public sealed class ConnectionDialog : Form
     private TableLayoutPanel BuildSchemaPanel()
     {
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, Margin = Padding.Empty };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 126));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         grid.Controls.Add(Label_("Schema"), 0, 0);
         grid.Controls.Add(_schema, 1, 0);
         grid.Controls.Add(_loadSchemas, 2, 0);
-        var hint = new Label
+        var hint = new MaterialLabel
         {
             Text = "Limit the comparison to one schema (leave as all schemas to compare the whole database).",
             AutoSize = true,
-            ForeColor = Color.DimGray,
-            Margin = new Padding(3, 2, 0, 0),
+            FontType = MaterialSkinManager.fontType.Caption,
+            Margin = new Padding(3, 0, 0, 4),
         };
-        grid.Controls.Add(hint, 1, 1);
-        grid.SetColumnSpan(hint, 2);
+        grid.Controls.Add(hint, 0, 1);
+        grid.SetColumnSpan(hint, 3);
         _schema.Items.Add(AllSchemas);
         _schema.SelectedIndex = 0;
         return grid;
@@ -201,22 +220,22 @@ public sealed class ConnectionDialog : Form
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         grid.Controls.Add(Label_("Connection string"), 0, 0);
         grid.Controls.Add(_connString, 0, 1);
-        var hint = new Label
+        var hint = new MaterialLabel
         {
             Text = "Engine (above) selects the driver. Include the database/catalog in the string.",
             AutoSize = true,
-            ForeColor = Color.DimGray,
+            FontType = MaterialSkinManager.fontType.Caption,
         };
         grid.Controls.Add(hint, 0, 2);
         return grid;
     }
 
-    private static Label Label_(string text) => new()
+    private static MaterialLabel Label_(string text) => new()
     {
         Text = text,
         AutoSize = true,
         Anchor = AnchorStyles.Left,
-        Padding = new Padding(0, 5, 0, 0),
+        Padding = new Padding(0, 9, 0, 0),
     };
 
     private void UpdateFieldVisibility()
@@ -239,6 +258,7 @@ public sealed class ConnectionDialog : Form
         _savePassword.Text = raw
             ? "Remember connection string (encrypted for this Windows user)"
             : "Remember password (encrypted for this Windows user)";
+        AdjustHeight();
     }
 
     private void LoadFrom(ConnectionInfo info, bool savePassword, bool rawMode)
@@ -409,12 +429,12 @@ public sealed class ConnectionDialog : Form
             await using var conn = provider.CreateConnection(info);
             await conn.OpenAsync();
             _status.Text = "Connection OK.";
-            _status.ForeColor = Color.Green;
+            _status.ForeColor = MaterialTheme.SourceOnlyColor;
         }
         catch (Exception ex)
         {
             _status.Text = "Failed: " + FirstLine(ex.Message);
-            _status.ForeColor = Color.Firebrick;
+            _status.ForeColor = MaterialTheme.TargetOnlyColor;
         }
         finally
         {

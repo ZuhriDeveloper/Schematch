@@ -1,3 +1,5 @@
+using MaterialSkin;
+using MaterialSkin.Controls;
 using Schematch.App.Services;
 using Schematch.Core.Compare;
 using Schematch.Core.Model;
@@ -6,7 +8,7 @@ using Schematch.Core.Scripting;
 
 namespace Schematch.App.UI;
 
-public sealed class MainForm : Form
+public sealed class MainForm : MaterialForm
 {
     private readonly AppSettings _settings = AppSettings.Load();
 
@@ -16,15 +18,69 @@ public sealed class MainForm : Form
     private IDatabaseProvider? _provider;
     private CancellationTokenSource? _cts;
 
-    private readonly Button _sourceButton = new() { Text = "Source: (not set)", AutoSize = true, Padding = new Padding(4) };
-    private readonly Button _targetButton = new() { Text = "Target: (not set)", AutoSize = true, Padding = new Padding(4) };
-    private readonly Button _swap = new() { Text = "⇄", AutoSize = true, Padding = new Padding(2) };
-    private readonly Button _compare = new() { Text = "Compare", AutoSize = true, Padding = new Padding(4), Enabled = false };
-    private readonly Button _cancel = new() { Text = "Cancel", AutoSize = true, Enabled = false };
-    private readonly CheckBox _ignoreWhitespace = new() { Text = "Ignore whitespace in code objects", AutoSize = true };
-    private readonly CheckBox _includeDrops = new() { Text = "Script DROPs for target-only objects", AutoSize = true };
-    private readonly CheckBox _hideEqual = new() { Text = "Hide equal objects", AutoSize = true };
-    private readonly Label _status = new() { AutoSize = true, Padding = new Padding(10, 8, 0, 0), ForeColor = Color.DimGray };
+    private readonly MaterialButton _sourceButton = new()
+    {
+        Text = "Source: (not set)",
+        Type = MaterialButton.MaterialButtonType.Outlined,
+        CharacterCasing = MaterialButton.CharacterCasingEnum.Normal,
+        AutoSize = true,
+        Margin = new Padding(4, 6, 2, 6),
+    };
+    private readonly MaterialButton _targetButton = new()
+    {
+        Text = "Target: (not set)",
+        Type = MaterialButton.MaterialButtonType.Outlined,
+        CharacterCasing = MaterialButton.CharacterCasingEnum.Normal,
+        AutoSize = true,
+        Margin = new Padding(2, 6, 4, 6),
+    };
+    private readonly MaterialButton _swap = new()
+    {
+        Text = "⇄",
+        Type = MaterialButton.MaterialButtonType.Outlined,
+        AutoSize = false,
+        Size = new Size(48, 36),
+        Margin = new Padding(2, 6, 2, 6),
+    };
+    private readonly MaterialButton _compare = new()
+    {
+        Text = "Compare",
+        Enabled = false,
+        AutoSize = true,
+        Margin = new Padding(12, 6, 4, 6),
+    };
+    private readonly MaterialButton _cancel = new()
+    {
+        Text = "Cancel",
+        Type = MaterialButton.MaterialButtonType.Outlined,
+        Enabled = false,
+        AutoSize = true,
+        Margin = new Padding(4, 6, 12, 6),
+    };
+    private readonly MaterialCheckbox _ignoreWhitespace = new()
+    {
+        Text = "Ignore whitespace in code objects",
+        AutoSize = true,
+        Margin = new Padding(4, 6, 0, 6),
+    };
+    private readonly MaterialCheckbox _includeDrops = new()
+    {
+        Text = "Script DROPs for target-only objects",
+        AutoSize = true,
+        Margin = new Padding(4, 6, 0, 6),
+    };
+    private readonly MaterialCheckbox _hideEqual = new()
+    {
+        Text = "Hide equal objects",
+        AutoSize = true,
+        Margin = new Padding(4, 6, 0, 6),
+    };
+    private readonly MaterialLabel _status = new()
+    {
+        AutoSize = true,
+        FontType = MaterialSkinManager.fontType.Body2,
+        Margin = new Padding(12, 14, 0, 0),
+    };
 
     private readonly ListView _results = new()
     {
@@ -33,13 +89,36 @@ public sealed class MainForm : Form
         FullRowSelect = true,
         CheckBoxes = true,
         HideSelection = false,
+        BorderStyle = BorderStyle.None,
+        BackColor = Color.White,
+        Font = new Font("Segoe UI", 9.5f),
     };
     // AutoCheck off so we drive the state ourselves; ThreeState shows the mixed (indeterminate) case.
-    private readonly CheckBox _selectAll = new() { Text = "Select all", AutoSize = true, ThreeState = true, AutoCheck = false, Margin = new Padding(4, 4, 0, 0) };
+    private readonly MaterialCheckbox _selectAll = new()
+    {
+        Text = "Select all",
+        AutoSize = true,
+        ThreeState = true,
+        AutoCheck = false,
+        Margin = new Padding(4, 2, 0, 0),
+    };
     private bool _suppressCheckSync;
     private readonly DiffViewer _diff = new() { Dock = DockStyle.Fill };
-    private readonly Button _generate = new() { Text = "Generate Deployment Script", AutoSize = true, Enabled = false };
-    private readonly Button _dataCompare = new() { Text = "Data Compare…", AutoSize = true, Enabled = false };
+    private readonly MaterialButton _generate = new()
+    {
+        Text = "Generate Deployment Script",
+        Enabled = false,
+        AutoSize = true,
+        Margin = new Padding(4, 6, 4, 6),
+    };
+    private readonly MaterialButton _dataCompare = new()
+    {
+        Text = "Data Compare…",
+        Type = MaterialButton.MaterialButtonType.Outlined,
+        Enabled = false,
+        AutoSize = true,
+        Margin = new Padding(4, 6, 4, 6),
+    };
 
     public MainForm()
     {
@@ -49,6 +128,7 @@ public sealed class MainForm : Form
         MinimumSize = new Size(900, 600);
         WindowState = FormWindowState.Maximized;
         Font = new Font("Segoe UI", 9f);
+        MaterialTheme.Apply(this);
 
         _ignoreWhitespace.Checked = _settings.IgnoreWhitespaceInModules;
         _includeDrops.Checked = _settings.IncludeDrops;
@@ -96,7 +176,7 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            Padding = new Padding(8),
+            Padding = new Padding(8, 6, 8, 2),
             WrapContents = true,
         };
         top.Controls.AddRange(new Control[]
@@ -114,16 +194,26 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Horizontal,
-            SplitterDistance = 330,
+            BackColor = Color.FromArgb(224, 224, 224),
         };
-        var resultsHeader = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(4, 2, 4, 2) };
+        // Splitter positions are absolute, so set once the container has its real (docked) size.
+        Load += (_, _) => split.SplitterDistance = Math.Max(330, split.Height * 45 / 100);
+        split.Panel1.BackColor = Color.White;
+        split.Panel2.BackColor = Color.White;
+        var resultsHeader = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            Padding = new Padding(4, 2, 4, 2),
+            BackColor = Color.White,
+        };
         resultsHeader.Controls.Add(_selectAll);
         // Fill control added first so it fills the space left by the docked header.
         split.Panel1.Controls.Add(_results);
         split.Panel1.Controls.Add(resultsHeader);
         split.Panel2.Controls.Add(_diff);
 
-        var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6) };
+        var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6, 2, 6, 2) };
         bottom.Controls.AddRange(new Control[] { _generate, _dataCompare });
 
         Controls.Add(split);
@@ -248,10 +338,10 @@ public sealed class MainForm : Form
                     Checked = diff.Status != DiffStatus.Equal,
                     ForeColor = diff.Status switch
                     {
-                        DiffStatus.SourceOnly => Color.FromArgb(0, 128, 0),
-                        DiffStatus.TargetOnly => Color.FromArgb(178, 34, 34),
-                        DiffStatus.Different => Color.FromArgb(200, 120, 0),
-                        _ => Color.Gray,
+                        DiffStatus.SourceOnly => MaterialTheme.SourceOnlyColor,
+                        DiffStatus.TargetOnly => MaterialTheme.TargetOnlyColor,
+                        DiffStatus.Different => MaterialTheme.DifferentColor,
+                        _ => MaterialTheme.EqualColor,
                     },
                 };
                 item.SubItems.Add(diff.Type.ToString());
