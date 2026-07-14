@@ -67,3 +67,14 @@ dotnet run --project tools/Schematch.E2E -- pg --pg-password=YOURPASSWORD
 
 `--provision-only` sets up the drifted demo databases without running the sync — handy for
 exercising the UI (`Schematch.App --demo-mssql` then loads them and compares automatically).
+
+## Releases
+
+Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) triggers [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which runs the test suite, publishes `Schematch.App` as a self-contained win-x64 single-file
+executable, and attaches it (zipped and as a raw `.exe`) to a new GitHub Release.
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
