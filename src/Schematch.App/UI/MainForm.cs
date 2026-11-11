@@ -103,6 +103,7 @@ public sealed class MainForm : MaterialForm
         Margin = new Padding(4, 2, 0, 0),
     };
     private bool _suppressCheckSync;
+    private readonly ToolTip _connectionTips = new();
     private readonly DiffViewer _diff = new() { Dock = DockStyle.Fill };
     private readonly MaterialButton _generate = new()
     {
@@ -148,6 +149,7 @@ public sealed class MainForm : MaterialForm
         _generate.Click += (_, _) => GenerateScript();
         _dataCompare.Click += (_, _) => OpenDataCompare();
         FormClosing += (_, _) => SaveOptions();
+        Disposed += (_, _) => _connectionTips.Dispose();
     }
 
     /// <summary>
@@ -245,8 +247,11 @@ public sealed class MainForm : MaterialForm
 
     private void UpdateConnectionButtons()
     {
-        _sourceButton.Text = "Source: " + (_sourceInfo?.DisplayName ?? "(not set)");
-        _targetButton.Text = "Target: " + (_targetInfo?.DisplayName ?? "(not set)");
+        // Buttons show the alias when set; the tooltip always says where the connection points.
+        _sourceButton.Text = "Source: " + (_sourceInfo?.ShortDisplayName ?? "(not set)");
+        _targetButton.Text = "Target: " + (_targetInfo?.ShortDisplayName ?? "(not set)");
+        _connectionTips.SetToolTip(_sourceButton, _sourceInfo?.DisplayName ?? "Set the source database");
+        _connectionTips.SetToolTip(_targetButton, _targetInfo?.DisplayName ?? "Set the target database");
         _compare.Enabled = _sourceInfo is not null && _targetInfo is not null;
     }
 

@@ -35,7 +35,16 @@ public sealed class ConnectionInfo
 
     public bool UsesRawConnectionString => !string.IsNullOrWhiteSpace(ConnectionString);
 
-    public string DisplayName
+    /// <summary>
+    /// Optional user-chosen nickname (e.g. "Billing DEV") shown instead of the host/database so
+    /// source and target are easy to tell apart. Display only — never used to connect.
+    /// </summary>
+    public string Alias { get; set; } = "";
+
+    public bool HasAlias => !string.IsNullOrWhiteSpace(Alias);
+
+    /// <summary>Where the connection points: host, database and schema scope.</summary>
+    public string Description
     {
         get
         {
@@ -45,6 +54,12 @@ public sealed class ConnectionInfo
                 : (string.IsNullOrEmpty(Database) ? Host : $"{Host} · {Database}{schemaSuffix}");
         }
     }
+
+    /// <summary>Alias plus where it points, e.g. "Billing DEV (localhost · billing)"; just the description without an alias.</summary>
+    public string DisplayName => HasAlias ? $"{Alias.Trim()} ({Description})" : Description;
+
+    /// <summary>Compact label: the alias when set, otherwise the description.</summary>
+    public string ShortDisplayName => HasAlias ? Alias.Trim() : Description;
 
     public ConnectionInfo Clone() => (ConnectionInfo)MemberwiseClone();
 }

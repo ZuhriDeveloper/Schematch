@@ -11,6 +11,7 @@ public sealed class ConnectionDialog : MaterialForm
     private readonly AppSettings _settings;
 
     private readonly MaterialComboBox _recent = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, UseTallSize = false };
+    private readonly MaterialTextBox2 _alias = new() { Dock = DockStyle.Fill, UseTallSize = false, Hint = "Optional nickname, e.g. Billing DEV", MaxLength = 64 };
     private readonly MaterialComboBox _provider = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, UseTallSize = false };
     private readonly MaterialCheckbox _useConnString = new() { Text = "Enter a connection string directly", AutoSize = true };
 
@@ -136,6 +137,7 @@ public sealed class ConnectionDialog : MaterialForm
         }
 
         AddRow(Label_("Recent"), _recent);
+        AddRow(Label_("Alias"), _alias);
         AddRow(Label_("Engine"), _provider);
         AddRow(null, _useConnString, spanFull: true);
         AddRow(null, _structuredPanel, spanFull: true);
@@ -263,6 +265,7 @@ public sealed class ConnectionDialog : MaterialForm
 
     private void LoadFrom(ConnectionInfo info, bool savePassword, bool rawMode)
     {
+        _alias.Text = info.Alias;
         _provider.SelectedItem = ProviderRegistry.Get(info.ProviderName).Name;
         _useConnString.Checked = rawMode;
         if (rawMode)
@@ -299,7 +302,7 @@ public sealed class ConnectionDialog : MaterialForm
         if (_useConnString.Checked)
         {
             string cs = _connString.Text.Trim();
-            info = new ConnectionInfo { ProviderName = providerName, ConnectionString = cs, Schema = SelectedSchema() };
+            info = new ConnectionInfo { Alias = _alias.Text.Trim(), ProviderName = providerName, ConnectionString = cs, Schema = SelectedSchema() };
             if (cs.Length == 0)
             {
                 _status.Text = "Connection string is required.";
@@ -356,6 +359,7 @@ public sealed class ConnectionDialog : MaterialForm
         bool isSqlServer = providerName == "SQL Server";
         return new ConnectionInfo
         {
+            Alias = _alias.Text.Trim(),
             ProviderName = providerName,
             Host = _host.Text.Trim(),
             Port = isSqlServer ? null : (int)_port.Value,

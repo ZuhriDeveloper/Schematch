@@ -87,4 +87,36 @@ public class ConnectionStringTests
         var whole = new ConnectionInfo { ProviderName = "PostgreSQL", Host = "localhost", Database = "mydb" };
         Assert.DoesNotContain("[", whole.DisplayName);
     }
+
+    [Fact]
+    public void Alias_is_shown_alongside_the_description()
+    {
+        var info = new ConnectionInfo { ProviderName = "SQL Server", Host = "srv", Database = "billing", Alias = "  Billing DEV " };
+        Assert.True(info.HasAlias);
+        Assert.Equal("srv · billing", info.Description);
+        Assert.Equal("Billing DEV (srv · billing)", info.DisplayName);
+        Assert.Equal("Billing DEV", info.ShortDisplayName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Blank_alias_falls_back_to_the_description(string alias)
+    {
+        var info = new ConnectionInfo { ProviderName = "SQL Server", Host = "srv", Database = "billing", Alias = alias };
+        Assert.False(info.HasAlias);
+        Assert.Equal("srv · billing", info.DisplayName);
+        Assert.Equal("srv · billing", info.ShortDisplayName);
+    }
+
+    [Fact]
+    public void Alias_does_not_change_the_connection_string()
+    {
+        var provider = new SqlServerProvider();
+        var plain = new ConnectionInfo { ProviderName = "SQL Server", Host = "srv", Database = "db" };
+        var aliased = plain.Clone();
+        aliased.Alias = "Prod copy";
+        Assert.Equal("Prod copy", aliased.Alias);
+        Assert.Equal(provider.BuildConnectionString(plain), provider.BuildConnectionString(aliased));
+    }
 }

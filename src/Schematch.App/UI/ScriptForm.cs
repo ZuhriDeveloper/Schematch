@@ -93,7 +93,7 @@ public sealed class ScriptForm : MaterialForm
         if (_provider is null || _target is null) return;
 
         string typed = Microsoft.VisualBasic.Interaction.InputBox(
-            $"This will run the script against:\n\n    {_target.Host} · {_target.Database}\n\n" +
+            $"This will run the script against:\n\n    {(_target.HasAlias ? _target.Alias.Trim() + " — " : "")}{_target.Host} · {_target.Database}\n\n" +
             $"Type the target database name ({_target.Database}) to confirm.",
             "Confirm execution", "");
         if (!typed.Equals(_target.Database, StringComparison.OrdinalIgnoreCase))
