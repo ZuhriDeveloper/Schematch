@@ -68,7 +68,8 @@ public sealed class DataCompareForm : MaterialForm
         _source = source;
         _target = target;
 
-        Text = $"Data Compare — {source.Database} → {target.Database}";
+        static string Label(ConnectionInfo c) => c.HasAlias ? c.Alias.Trim() : c.Database;
+        Text = $"Data Compare — {Label(source)} → {Label(target)}";
         StartPosition = FormStartPosition.CenterParent;
         ClientSize = new Size(1000, 700);
         Font = new Font("Segoe UI", 9f);

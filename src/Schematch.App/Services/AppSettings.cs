@@ -7,6 +7,8 @@ namespace Schematch.App.Services;
 
 public sealed class SavedConnection
 {
+    /// <summary>Optional nickname; empty when the user did not set one.</summary>
+    public string Alias { get; set; } = "";
     public string ProviderName { get; set; } = "SQL Server";
     public string Host { get; set; } = "";
     public int? Port { get; set; }
@@ -26,16 +28,19 @@ public sealed class SavedConnection
 
     private string SchemaSuffix => string.IsNullOrEmpty(Schema) ? "" : $" [{Schema}]";
 
-    public string DisplayName => UsesRawConnectionString
+    private string AliasPrefix => string.IsNullOrWhiteSpace(Alias) ? "" : $"{Alias.Trim()} — ";
+
+    public string DisplayName => AliasPrefix + (UsesRawConnectionString
         ? $"{ProviderName}: {(string.IsNullOrEmpty(Database) ? "(connection string)" : Database + SchemaSuffix + " (connection string)")}"
         : $"{ProviderName}: {Host}{(Port is int p ? $":{p}" : "")} · {Database}{SchemaSuffix}" +
-          (UseWindowsAuth ? "" : $" ({Username})");
+          (UseWindowsAuth ? "" : $" ({Username})"));
 
     /// <summary>The recent-connections combo renders items via ToString (owner-drawn), so mirror DisplayName.</summary>
     public override string ToString() => DisplayName;
 
     public ConnectionInfo ToConnectionInfo() => new()
     {
+        Alias = Alias ?? "",
         ProviderName = ProviderName,
         Host = Host,
         Port = Port,
@@ -49,6 +54,7 @@ public sealed class SavedConnection
 
     public static SavedConnection From(ConnectionInfo info, bool savePassword) => new()
     {
+        Alias = info.Alias.Trim(),
         ProviderName = info.ProviderName,
         Host = info.Host,
         Port = info.Port,
