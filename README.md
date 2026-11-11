@@ -10,6 +10,9 @@ Supports **SQL Server** and **PostgreSQL** (same-engine pairs).
 
 - **Schema compare** across tables (columns, primary/foreign keys, unique & check constraints,
   indexes, identity/computed columns, defaults) plus views, stored procedures, functions and triggers.
+- **Refresh one side** with the ↻ button next to the Source or Target button: it re-reads only that
+  database and re-compares against the other side's last load (e.g. after deploying to the target),
+  keeping the selected object and your check marks for objects whose status didn't change.
 - **Side-by-side DDL diff** with line-level highlighting.
 - **Deployment script generation** in dependency-safe phases (drop code → drop FKs → drop
   constraints/indexes → drop tables → create tables → alter columns → recreate constraints →
