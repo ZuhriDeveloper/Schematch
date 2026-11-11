@@ -17,6 +17,12 @@ public sealed class MainForm : MaterialForm
     private SchemaComparisonResult? _comparison;
     private IDatabaseProvider? _provider;
     private CancellationTokenSource? _cts;
+    private bool _busy;
+
+    // Last schema read for each side, tagged with the connection it came from: refreshing one side
+    // reuses the other side's snapshot, but only while that connection is still the one in use.
+    private (ConnectionInfo Info, DatabaseSchema Schema)? _sourceSnapshot;
+    private (ConnectionInfo Info, DatabaseSchema Schema)? _targetSnapshot;
 
     private readonly MaterialButton _sourceButton = new()
     {
@@ -34,6 +40,8 @@ public sealed class MainForm : MaterialForm
         AutoSize = true,
         Margin = new Padding(2, 6, 4, 6),
     };
+    private readonly MaterialButton _refreshSource = CreateRefreshButton("Refresh source");
+    private readonly MaterialButton _refreshTarget = CreateRefreshButton("Refresh target");
     private readonly MaterialButton _swap = new()
     {
         Text = "⇄",
@@ -137,8 +145,13 @@ public sealed class MainForm : MaterialForm
 
         BuildLayout();
 
+        _connectionTips.SetToolTip(_refreshSource, "Reload the source database and re-compare");
+        _connectionTips.SetToolTip(_refreshTarget, "Reload the target database and re-compare");
+
         _sourceButton.Click += (_, _) => EditConnection(isSource: true);
         _targetButton.Click += (_, _) => EditConnection(isSource: false);
+        _refreshSource.Click += async (_, _) => await RefreshAsync(source: true);
+        _refreshTarget.Click += async (_, _) => await RefreshAsync(source: false);
         _swap.Click += (_, _) => SwapConnections();
         _compare.Click += async (_, _) => await CompareAsync();
         _cancel.Click += (_, _) => _cts?.Cancel();
@@ -172,6 +185,18 @@ public sealed class MainForm : MaterialForm
         UpdateConnectionButtons();
     }
 
+    /// <summary>Icon-only button that sits right after a connection button; disabled until there is a comparison to refresh.</summary>
+    private static MaterialButton CreateRefreshButton(string accessibleName) => new()
+    {
+        Text = "↻",
+        AccessibleName = accessibleName,
+        Type = MaterialButton.MaterialButtonType.Text,
+        Enabled = false,
+        AutoSize = false,
+        Size = new Size(48, 36),
+        Margin = new Padding(0, 6, 4, 6),
+    };
+
     private void BuildLayout()
     {
         var top = new FlowLayoutPanel
@@ -183,7 +208,7 @@ public sealed class MainForm : MaterialForm
         };
         top.Controls.AddRange(new Control[]
         {
-            _sourceButton, _swap, _targetButton, _compare, _cancel,
+            _sourceButton, _refreshSource, _swap, _targetButton, _refreshTarget, _compare, _cancel,
             _ignoreWhitespace, _includeDrops, _hideEqual, _status,
         });
 
@@ -241,7 +266,6 @@ public sealed class MainForm : MaterialForm
         _comparison = null;
         _results.Items.Clear();
         _diff.Clear();
-        _generate.Enabled = _dataCompare.Enabled = false;
         UpdateConnectionButtons();
     }
 
@@ -252,30 +276,61 @@ public sealed class MainForm : MaterialForm
         _targetButton.Text = "Target: " + (_targetInfo?.ShortDisplayName ?? "(not set)");
         _connectionTips.SetToolTip(_sourceButton, _sourceInfo?.DisplayName ?? "Set the source database");
         _connectionTips.SetToolTip(_targetButton, _targetInfo?.DisplayName ?? "Set the target database");
-        _compare.Enabled = _sourceInfo is not null && _targetInfo is not null;
+        UpdateCommandStates();
     }
 
-    private async Task CompareAsync()
+    /// <summary>Enables the toolbar for the current state: nothing that reads or acts on results while a load runs.</summary>
+    private void UpdateCommandStates()
     {
-        if (_sourceInfo is null || _targetInfo is null) return;
-        if (!_sourceInfo.ProviderName.Equals(_targetInfo.ProviderName, StringComparison.OrdinalIgnoreCase))
+        bool ready = !_busy && _sourceInfo is not null && _targetInfo is not null;
+        _compare.Enabled = ready;
+        // A refresh re-compares the results on screen, so there has to be a comparison to refresh.
+        _refreshSource.Enabled = _refreshTarget.Enabled = ready && _comparison is not null;
+        _sourceButton.Enabled = _targetButton.Enabled = _swap.Enabled = !_busy;
+        _cancel.Enabled = _busy;
+        _generate.Enabled = !_busy && _comparison is not null && _comparison.Differences.Any(d => d.Status != DiffStatus.Equal);
+        _dataCompare.Enabled = !_busy && _comparison is not null;
+    }
+
+    /// <summary>Reads both databases from scratch and compares them.</summary>
+    private Task CompareAsync() => LoadAndCompareAsync(reloadSource: true, reloadTarget: true, keepView: false);
+
+    /// <summary>Re-reads one side and re-compares against the other side's last snapshot, keeping the user's place in the list.</summary>
+    private Task RefreshAsync(bool source) => LoadAndCompareAsync(reloadSource: source, reloadTarget: !source, keepView: true);
+
+    private async Task LoadAndCompareAsync(bool reloadSource, bool reloadTarget, bool keepView)
+    {
+        if (_busy || _sourceInfo is null || _targetInfo is null) return;
+        // Pin the connections for this run so the snapshots are tagged with what was actually read.
+        var sourceInfo = _sourceInfo;
+        var targetInfo = _targetInfo;
+        if (!sourceInfo.ProviderName.Equals(targetInfo.ProviderName, StringComparison.OrdinalIgnoreCase))
         {
             MessageBox.Show(this, "Source and target must use the same database engine.",
                 "Schematch", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
-        _provider = ProviderRegistry.Get(_sourceInfo.ProviderName);
-        _compare.Enabled = false;
-        _cancel.Enabled = true;
+        // A side the caller didn't ask for is still read if its snapshot is from another connection
+        // (e.g. it was edited since the last compare) — reusing it would compare against the wrong database.
+        var cachedSource = _sourceSnapshot is { } s && ReferenceEquals(s.Info, sourceInfo) ? s.Schema : null;
+        var cachedTarget = _targetSnapshot is { } t && ReferenceEquals(t.Info, targetInfo) ? t.Schema : null;
+        reloadSource |= cachedSource is null;
+        reloadTarget |= cachedTarget is null;
+
+        var provider = ProviderRegistry.Get(sourceInfo.ProviderName);
+        _busy = true;
         _cts = new CancellationTokenSource();
+        UpdateCommandStates();
         var progress = new Progress<string>(msg => _status.Text = msg);
 
         try
         {
-            var sourceTask = _provider.ReadSchemaAsync(_sourceInfo, progress, _cts.Token);
-            var targetTask = _provider.ReadSchemaAsync(_targetInfo, progress, _cts.Token);
+            var sourceTask = reloadSource ? provider.ReadSchemaAsync(sourceInfo, progress, _cts.Token) : Task.FromResult(cachedSource!);
+            var targetTask = reloadTarget ? provider.ReadSchemaAsync(targetInfo, progress, _cts.Token) : Task.FromResult(cachedTarget!);
             await Task.WhenAll(sourceTask, targetTask);
+            _sourceSnapshot = (sourceInfo, sourceTask.Result);
+            _targetSnapshot = (targetInfo, targetTask.Result);
 
             _status.Text = "Comparing…";
             var options = new CompareOptions
@@ -284,14 +339,19 @@ public sealed class MainForm : MaterialForm
                 IgnoreCase = _settings.IgnoreCase,
             };
             _comparison = new SchemaComparer(options).Compare(sourceTask.Result, targetTask.Result);
+            _provider = provider;
 
-            PopulateResults();
-            _diff.SetHeaders($"Source — {_sourceInfo.DisplayName}", $"Target — {_targetInfo.DisplayName}");
+            PopulateResults(keepView);
+            _diff.SetHeaders($"Source — {sourceInfo.DisplayName}", $"Target — {targetInfo.DisplayName}");
 
             int changed = _comparison.Differences.Count(d => d.Status != DiffStatus.Equal);
             _status.Text = $"{_comparison.Differences.Count} object(s) compared, {changed} difference(s).";
-            _generate.Enabled = changed > 0;
-            _dataCompare.Enabled = true;
+            // Say what a refresh actually re-read, so a refresh that found no change still visibly happened.
+            if (keepView)
+            {
+                string reloaded = reloadSource && reloadTarget ? "Source and target" : reloadSource ? "Source" : "Target";
+                _status.Text += $" {reloaded} reloaded at {DateTime.Now:HH:mm:ss}.";
+            }
         }
         catch (OperationCanceledException)
         {
@@ -304,14 +364,31 @@ public sealed class MainForm : MaterialForm
         }
         finally
         {
-            _compare.Enabled = true;
-            _cancel.Enabled = false;
+            _busy = false;
             _cts = null;
+            UpdateCommandStates();
         }
     }
 
-    private void PopulateResults()
+    private static string ViewKey(ObjectDifference diff) => $"{diff.Type}|{diff.FullName}";
+
+    /// <param name="keepView">
+    /// Restore the selected row, and the check mark of every object whose status didn't change.
+    /// An object whose status did change (e.g. now Equal after a deployment) gets the default instead.
+    /// </param>
+    private void PopulateResults(bool keepView = false)
     {
+        var previousChecks = new Dictionary<string, (DiffStatus Status, bool Checked)>(StringComparer.Ordinal);
+        string? previousSelection = null;
+        if (keepView)
+        {
+            foreach (ListViewItem existing in _results.Items)
+                if (existing.Tag is ObjectDifference d)
+                    previousChecks[ViewKey(d)] = (d.Status, existing.Checked);
+            if (_results.SelectedItems.Count > 0 && _results.SelectedItems[0].Tag is ObjectDifference selected)
+                previousSelection = ViewKey(selected);
+        }
+
         _suppressCheckSync = true;
         _results.BeginUpdate();
         _results.Items.Clear();
@@ -337,10 +414,13 @@ public sealed class MainForm : MaterialForm
 
             foreach (var diff in diffs)
             {
+                bool check = previousChecks.TryGetValue(ViewKey(diff), out var previous) && previous.Status == diff.Status
+                    ? previous.Checked
+                    : diff.Status != DiffStatus.Equal;
                 var item = new ListViewItem(diff.FullName, group)
                 {
                     Tag = diff,
-                    Checked = diff.Status != DiffStatus.Equal,
+                    Checked = check,
                     ForeColor = diff.Status switch
                     {
                         DiffStatus.SourceOnly => MaterialTheme.SourceOnlyColor,
@@ -365,6 +445,15 @@ public sealed class MainForm : MaterialForm
         _results.EndUpdate();
         _suppressCheckSync = false;
         UpdateSelectAllState();
+
+        if (previousSelection is null) return;
+        // Selecting re-renders the diff pane, so it shows the freshly loaded definition.
+        var reselect = _results.Items.Cast<ListViewItem>()
+            .FirstOrDefault(i => i.Tag is ObjectDifference d && ViewKey(d) == previousSelection);
+        if (reselect is null) return;
+        reselect.Selected = true;
+        reselect.Focused = true;
+        reselect.EnsureVisible();
     }
 
     /// <summary>Checks every visible row, or unchecks them all if they are already all checked.</summary>
